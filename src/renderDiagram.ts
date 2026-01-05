@@ -5,6 +5,7 @@ export type DiagramSpec = {
     bg: string;
   };
 
+  // 2D primitives
   polygons?: {
     id?: string;
     points: [number, number][];
@@ -18,6 +19,37 @@ export type DiagramSpec = {
     b: [number, number];
     stroke?: string;
     strokeWidth?: number;
+  }[];
+
+  rects?: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    stroke?: string;
+    strokeWidth?: number;
+    fill?: string;
+    rx?: number;
+    ry?: number;
+  }[];
+
+  circles?: {
+    cx: number;
+    cy: number;
+    r: number;
+    stroke?: string;
+    strokeWidth?: number;
+    fill?: string;
+  }[];
+
+  ellipses?: {
+    cx: number;
+    cy: number;
+    rx: number;
+    ry: number;
+    stroke?: string;
+    strokeWidth?: number;
+    fill?: string;
   }[];
 
   points?: {
@@ -94,6 +126,44 @@ export function renderDiagramSVG(spec: DiagramSpec) {
   const baseFontSize = n(spec.defaults?.fontSize, 18);
   const labelColor = s(spec.defaults?.labelColor, "#000000");
 
+  const rects = (spec.rects ?? [])
+    .map((r) => {
+      const stroke = s(r.stroke, defStroke);
+      const sw = n(r.strokeWidth, defStrokeWidth);
+      const fill = s(r.fill, defFill);
+      const rx = r.rx != null ? ` rx="${n(r.rx, 0)}"` : "";
+      const ry = r.ry != null ? ` ry="${n(r.ry, 0)}"` : "";
+      return `<rect x="${n(r.x, 0)}" y="${n(r.y, 0)}" width="${n(r.w, 0)}" height="${n(
+        r.h,
+        0
+      )}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"${rx}${ry} />`;
+    })
+    .join("\n");
+
+  const circles = (spec.circles ?? [])
+    .map((c) => {
+      const stroke = s(c.stroke, defStroke);
+      const sw = n(c.strokeWidth, defStrokeWidth);
+      const fill = s(c.fill, defFill);
+      return `<circle cx="${n(c.cx, 0)}" cy="${n(c.cy, 0)}" r="${n(
+        c.r,
+        0
+      )}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" />`;
+    })
+    .join("\n");
+
+  const ellipses = (spec.ellipses ?? [])
+    .map((e) => {
+      const stroke = s(e.stroke, defStroke);
+      const sw = n(e.strokeWidth, defStrokeWidth);
+      const fill = s(e.fill, defFill);
+      return `<ellipse cx="${n(e.cx, 0)}" cy="${n(e.cy, 0)}" rx="${n(
+        e.rx,
+        0
+      )}" ry="${n(e.ry, 0)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" />`;
+    })
+    .join("\n");
+
   const polys = (spec.polygons ?? [])
     .map((p) => {
       const pts = p.points.map(([x, y]) => `${n(x, 0)},${n(y, 0)}`).join(" ");
@@ -110,7 +180,10 @@ export function renderDiagramSVG(spec: DiagramSpec) {
       const [x2, y2] = seg.b;
       const stroke = s(seg.stroke, defStroke);
       const sw = n(seg.strokeWidth, defStrokeWidth);
-      return `<line x1="${n(x1, 0)}" y1="${n(y1, 0)}" x2="${n(x2, 0)}" y2="${n(y2, 0)}" stroke="${stroke}" stroke-width="${sw}" />`;
+      return `<line x1="${n(x1, 0)}" y1="${n(y1, 0)}" x2="${n(x2, 0)}" y2="${n(
+        y2,
+        0
+      )}" stroke="${stroke}" stroke-width="${sw}" />`;
     })
     .join("\n");
 
@@ -139,6 +212,9 @@ export function renderDiagramSVG(spec: DiagramSpec) {
   return `
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <rect width="100%" height="100%" fill="${bg}" />
+  ${rects}
+  ${circles}
+  ${ellipses}
   ${polys}
   ${segs}
   ${pts}
