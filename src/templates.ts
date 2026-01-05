@@ -42,7 +42,7 @@ Rules:
 - use crisp black strokes "#000000"
 - keep shapes and labels at least 40px from edges
 - labels should be readable and near their intended features
-- include side-length labels ONLY when the diagram request asks (these templates DO include side labels because they’re for measurement problems)
+- include side-length labels ONLY when the diagram request asks
 `.trim();
 
 function defaultsBlock() {
@@ -56,7 +56,7 @@ function defaultsBlock() {
   };
 }
 
-// Similar triangles helpers (still useful for proportions)
+// Similar triangles helpers (useful for proportions)
 function extractTriangleTriples(desc: string): { tri1: string; tri2: string } {
   const m = desc.match(/triangles?\s+([A-Z]{3})\s+and\s+([A-Z]{3})/i);
   if (m) return { tri1: m[1].toUpperCase(), tri2: m[2].toUpperCase() };
@@ -83,14 +83,14 @@ function buildVertexMapping(tri1: string, tri2: string, side1: string, side2: st
 }
 
 export const templates: Template[] = [
-  // =========================
-  // PRE-ALGEBRA: MISSING SIDE (Perimeter)
-  // =========================
+  // ======================================================
+  // PRE-ALGEBRA — PERIMETER/AREA: MISSING SIDE
+  // ======================================================
   {
     id: "pa-rectangle-missing-side-x",
-    name: "Pre-Algebra — Rectangle Missing Side (x)",
+    name: "PA — Rectangle Missing Side (x)",
     defaultDescription:
-      "Draw a rectangle for a perimeter problem. Label three sides: top = 12 cm, left = 7 cm, right = 7 cm. Label the bottom side as x cm.",
+      "Draw a rectangle for a perimeter problem. Label top = 12 cm, left = 7 cm, right = 7 cm, bottom = x cm.",
     promptBuilder: (desc) => `
 ${JSON_SCHEMA_BLOCK}
 
@@ -108,10 +108,10 @@ Extra constraints:
         defaults: defaultsBlock(),
         rects: [{ x: 250, y: 120, w: 420, h: 220 }],
         labels: [
-          { text: "12 cm", x: 460, y: 105, bold: true }, // top
-          { text: "x cm", x: 460, y: 365, bold: true },  // bottom unknown
-          { text: "7 cm", x: 230, y: 230, bold: true },  // left
-          { text: "7 cm", x: 690, y: 230, bold: true },  // right
+          { text: "12 cm", x: 460, y: 105, bold: true },
+          { text: "x cm", x: 460, y: 365, bold: true },
+          { text: "7 cm", x: 230, y: 230, bold: true },
+          { text: "7 cm", x: 690, y: 230, bold: true },
         ],
       },
       null,
@@ -120,10 +120,10 @@ Extra constraints:
   },
 
   {
-    id: "pa-rectangle-missing-side-q",
-    name: "Pre-Algebra — Rectangle Missing Side (?)",
+    id: "pa-rectangle-missing-side-question",
+    name: "PA — Rectangle Missing Side (?)",
     defaultDescription:
-      "Draw a rectangle for a perimeter problem. Label three sides: top = 18 in, left = 9 in, bottom = 18 in. Label the right side as ?.",
+      "Draw a rectangle. Label top = 18 in, left = 9 in, bottom = 18 in, right = ?.",
     promptBuilder: (desc) => `
 ${JSON_SCHEMA_BLOCK}
 
@@ -141,10 +141,10 @@ Extra constraints:
         defaults: defaultsBlock(),
         rects: [{ x: 250, y: 120, w: 420, h: 220 }],
         labels: [
-          { text: "18 in", x: 460, y: 105, bold: true }, // top
-          { text: "18 in", x: 460, y: 365, bold: true }, // bottom
-          { text: "9 in", x: 230, y: 230, bold: true },  // left
-          { text: "?", x: 690, y: 230, bold: true },     // right unknown
+          { text: "18 in", x: 460, y: 105, bold: true },
+          { text: "18 in", x: 460, y: 365, bold: true },
+          { text: "9 in", x: 230, y: 230, bold: true },
+          { text: "?", x: 690, y: 230, bold: true },
         ],
       },
       null,
@@ -152,14 +152,14 @@ Extra constraints:
     ),
   },
 
-  // =========================
-  // PRE-ALGEBRA: UNIT CONVERSION LABELS
-  // =========================
+  // ======================================================
+  // PRE-ALGEBRA — UNIT CONVERSION LABELS
+  // ======================================================
   {
-    id: "pa-rectangle-unit-conversion-cm-m",
-    name: "Pre-Algebra — Unit Conversion (cm ↔ m)",
+    id: "pa-unit-conversion-cm-m",
+    name: "PA — Rectangle Unit Conversion (cm ↔ m)",
     defaultDescription:
-      "Draw a rectangle with one side labeled 250 cm and the adjacent side labeled 1.8 m. (Unit conversion problem.)",
+      "Draw a rectangle with one side labeled 250 cm and the adjacent side labeled 1.8 m.",
     promptBuilder: (desc) => `
 ${JSON_SCHEMA_BLOCK}
 
@@ -168,8 +168,7 @@ ${desc}
 
 Extra constraints:
 - Use one rect.
-- Put unit labels clearly on the sides.
-- Keep spacing generous so units are readable.
+- Keep unit labels clear and readable.
 `.trim(),
     starterJSON: JSON.stringify(
       {
@@ -177,8 +176,8 @@ Extra constraints:
         defaults: defaultsBlock(),
         rects: [{ x: 270, y: 130, w: 380, h: 200 }],
         labels: [
-          { text: "250 cm", x: 460, y: 115, bold: true }, // top
-          { text: "1.8 m", x: 255, y: 230, bold: true },  // left
+          { text: "250 cm", x: 460, y: 115, bold: true },
+          { text: "1.8 m", x: 255, y: 230, bold: true },
         ],
       },
       null,
@@ -187,10 +186,10 @@ Extra constraints:
   },
 
   {
-    id: "pa-rectangle-unit-conversion-in-ft",
-    name: "Pre-Algebra — Unit Conversion (in ↔ ft)",
+    id: "pa-unit-conversion-in-ft",
+    name: "PA — Rectangle Unit Conversion (in ↔ ft)",
     defaultDescription:
-      "Draw a rectangle with one side labeled 36 in and the adjacent side labeled 4 ft. (Unit conversion problem.)",
+      "Draw a rectangle with one side labeled 36 in and the adjacent side labeled 4 ft.",
     promptBuilder: (desc) => `
 ${JSON_SCHEMA_BLOCK}
 
@@ -199,8 +198,7 @@ ${desc}
 
 Extra constraints:
 - Use one rect.
-- Put unit labels clearly on the sides.
-- Keep spacing generous so units are readable.
+- Keep unit labels clear and readable.
 `.trim(),
     starterJSON: JSON.stringify(
       {
@@ -217,14 +215,14 @@ Extra constraints:
     ),
   },
 
-  // =========================
-  // PRE-ALGEBRA: AREA & PERIMETER BASICS
-  // =========================
+  // ======================================================
+  // PRE-ALGEBRA — AREA/PERIMETER FOUNDATIONS
+  // ======================================================
   {
-    id: "pa-rectangle-perimeter-area",
-    name: "Pre-Algebra — Rectangle (P/A with lengths)",
+    id: "pa-rectangle-with-lengths",
+    name: "PA — Rectangle (lengths)",
     defaultDescription:
-      "Draw rectangle ABCD. Label vertices and label side lengths: AB = 12 cm, BC = 7 cm. No grid.",
+      "Draw rectangle ABCD. Label AB = 12 cm and BC = 7 cm. Label vertices.",
     promptBuilder: (desc) => `
 ${JSON_SCHEMA_BLOCK}
 
@@ -233,8 +231,8 @@ ${desc}
 
 Extra constraints:
 - Use one rect.
-- Put length labels centered on each side (top/bottom match, left/right match).
-- Keep everything clean and not touching edges.
+- Put length labels centered on each side.
+- Keep vertex labels near corners.
 `.trim(),
     starterJSON: JSON.stringify(
       {
@@ -259,8 +257,40 @@ Extra constraints:
   },
 
   {
+    id: "pa-rectangle-algebraic-sides",
+    name: "PA — Rectangle (algebraic sides)",
+    defaultDescription:
+      "Draw a rectangle with side lengths labeled (2x + 3) and (x - 1).",
+    promptBuilder: (desc) => `
+${JSON_SCHEMA_BLOCK}
+
+Diagram request:
+${desc}
+
+Extra constraints:
+- Use one rect.
+- Put expressions centered on the sides.
+`.trim(),
+    starterJSON: JSON.stringify(
+      {
+        canvas: { width: 900, height: 450, bg: "#ffffff" },
+        defaults: defaultsBlock(),
+        rects: [{ x: 270, y: 130, w: 380, h: 200 }],
+        labels: [
+          { text: "2x + 3", x: 460, y: 115, bold: true },
+          { text: "2x + 3", x: 460, y: 345, bold: true },
+          { text: "x - 1", x: 255, y: 230, bold: true },
+          { text: "x - 1", x: 665, y: 230, bold: true },
+        ],
+      },
+      null,
+      2
+    ),
+  },
+
+  {
     id: "pa-triangle-base-height",
-    name: "Pre-Algebra — Triangle (base & height)",
+    name: "PA — Triangle (base & height)",
     defaultDescription:
       "Draw a triangle with base labeled 14 cm and height labeled 9 cm (show altitude).",
     promptBuilder: (desc) => `
@@ -270,9 +300,8 @@ Diagram request:
 ${desc}
 
 Extra constraints:
-- Use one triangle polygon.
-- Show a height (altitude) from a vertex to the base using segments.
-- Put base and height labels near correct parts.
+- Use one polygon.
+- Show a height segment to the base with a right-angle marker.
 `.trim(),
     starterJSON: JSON.stringify(
       {
@@ -294,12 +323,200 @@ Extra constraints:
     ),
   },
 
-  // =========================
-  // PRE-ALGEBRA: SIMILAR FIGURES / PROPORTIONS
-  // =========================
+  {
+    id: "pa-parallelogram-base-height",
+    name: "PA — Parallelogram (base & height)",
+    defaultDescription:
+      "Draw a parallelogram with base labeled 16 cm and height labeled 6 cm (show height).",
+    promptBuilder: (desc) => `
+${JSON_SCHEMA_BLOCK}
+
+Diagram request:
+${desc}
+
+Extra constraints:
+- Use one polygon.
+- Show a perpendicular height segment with right-angle marker.
+`.trim(),
+    starterJSON: JSON.stringify(
+      {
+        canvas: { width: 900, height: 450, bg: "#ffffff" },
+        defaults: defaultsBlock(),
+        polygons: [{ points: [[260, 320], [380, 150], [700, 150], [580, 320]] }],
+        segments: [
+          { a: [380, 150], b: [380, 320] },
+          { a: [380, 305], b: [395, 305] },
+          { a: [395, 305], b: [395, 320] },
+        ],
+        labels: [
+          { text: "16 cm", x: 420, y: 345, bold: true },
+          { text: "6 cm", x: 405, y: 235, bold: true },
+        ],
+      },
+      null,
+      2
+    ),
+  },
+
+  {
+    id: "pa-trapezoid-bases-height",
+    name: "PA — Trapezoid (bases & height)",
+    defaultDescription:
+      "Draw a trapezoid with bases labeled 18 cm (bottom) and 10 cm (top), and height labeled 7 cm.",
+    promptBuilder: (desc) => `
+${JSON_SCHEMA_BLOCK}
+
+Diagram request:
+${desc}
+
+Extra constraints:
+- Use one trapezoid polygon.
+- Show a height segment with right-angle marker.
+`.trim(),
+    starterJSON: JSON.stringify(
+      {
+        canvas: { width: 900, height: 450, bg: "#ffffff" },
+        defaults: defaultsBlock(),
+        polygons: [{ points: [[250, 330], [350, 160], [590, 160], [710, 330]] }],
+        segments: [
+          { a: [420, 160], b: [420, 330] },
+          { a: [420, 315], b: [435, 315] },
+          { a: [435, 315], b: [435, 330] },
+        ],
+        labels: [
+          { text: "10 cm", x: 470, y: 145, bold: true },
+          { text: "18 cm", x: 480, y: 355, bold: true },
+          { text: "7 cm", x: 445, y: 245, bold: true },
+        ],
+      },
+      null,
+      2
+    ),
+  },
+
+  {
+    id: "pa-circle-radius",
+    name: "PA — Circle (radius)",
+    defaultDescription:
+      "Draw a circle with center O and radius labeled 8 cm. Include a radius segment.",
+    promptBuilder: (desc) => `
+${JSON_SCHEMA_BLOCK}
+
+Diagram request:
+${desc}
+
+Extra constraints:
+- Use circle primitive.
+- Include center point label and radius label.
+`.trim(),
+    starterJSON: JSON.stringify(
+      {
+        canvas: { width: 900, height: 450, bg: "#ffffff" },
+        defaults: defaultsBlock(),
+        circles: [{ cx: 450, cy: 225, r: 140 }],
+        segments: [{ a: [450, 225], b: [590, 225] }],
+        points: [
+          { at: [450, 225], r: 4, fill: "#000000" },
+          { at: [590, 225], r: 4, fill: "#000000" },
+        ],
+        labels: [
+          { text: "O", x: 430, y: 245, bold: true },
+          { text: "8 cm", x: 520, y: 205, bold: true },
+        ],
+      },
+      null,
+      2
+    ),
+  },
+
+  {
+    id: "pa-composite-l-shape",
+    name: "PA — Composite L-shape (area/perimeter)",
+    defaultDescription:
+      "Draw an L-shaped composite figure. Label outer side lengths with integers.",
+    promptBuilder: (desc) => `
+${JSON_SCHEMA_BLOCK}
+
+Diagram request:
+${desc}
+
+Extra constraints:
+- Use one polygon.
+- Keep it axis-aligned.
+- Place length labels near each outer edge.
+`.trim(),
+    starterJSON: JSON.stringify(
+      {
+        canvas: { width: 900, height: 450, bg: "#ffffff" },
+        defaults: defaultsBlock(),
+        polygons: [
+          {
+            points: [
+              [260, 120],
+              [640, 120],
+              [640, 200],
+              [450, 200],
+              [450, 340],
+              [260, 340],
+            ],
+          },
+        ],
+        labels: [
+          { text: "14", x: 450, y: 105, bold: true },
+          { text: "4", x: 655, y: 160, bold: true },
+          { text: "7", x: 545, y: 215, bold: true },
+          { text: "9", x: 465, y: 270, bold: true },
+          { text: "6", x: 355, y: 355, bold: true },
+          { text: "13", x: 245, y: 235, bold: true },
+        ],
+      },
+      null,
+      2
+    ),
+  },
+
+  // ======================================================
+  // PRE-ALGEBRA — SIMILAR FIGURES / SCALE FACTOR
+  // ======================================================
+  {
+    id: "pa-similar-rectangles",
+    name: "PA — Similar Rectangles (scale factor)",
+    defaultDescription:
+      "Draw two similar rectangles. Left: 6 cm by 4 cm. Right: 15 cm by 10 cm. Show corresponding sides.",
+    promptBuilder: (desc) => `
+${JSON_SCHEMA_BLOCK}
+
+Diagram request:
+${desc}
+
+Extra constraints:
+- Use rects for both.
+- Smaller on left, larger on right.
+- Put corresponding labels near corresponding sides.
+`.trim(),
+    starterJSON: JSON.stringify(
+      {
+        canvas: { width: 900, height: 450, bg: "#ffffff" },
+        defaults: defaultsBlock(),
+        rects: [
+          { x: 140, y: 160, w: 240, h: 160 },
+          { x: 540, y: 120, w: 300, h: 200 },
+        ],
+        labels: [
+          { text: "6 cm", x: 260, y: 145, bold: true },
+          { text: "4 cm", x: 125, y: 240, bold: true },
+          { text: "15 cm", x: 690, y: 105, bold: true },
+          { text: "10 cm", x: 525, y: 220, bold: true },
+        ],
+      },
+      null,
+      2
+    ),
+  },
+
   {
     id: "pa-similar-triangles-dynamic",
-    name: "Pre-Algebra — Similar Triangles (dynamic letters)",
+    name: "PA — Similar Triangles (dynamic letters)",
     defaultDescription:
       "Draw two similar triangles ABC and MNO where AB and MN are corresponding sides. Include AB = 6 cm and MN = 15 cm.",
     promptBuilder: (desc: string) => {
@@ -358,9 +575,125 @@ ${mappingLine ? mappingLine : "- No additional correspondence constraints detect
     ),
   },
 
-  // =========================
+  // ======================================================
+  // PRE-ALGEBRA — 3D: VOLUME & SURFACE AREA
+  // ======================================================
+  {
+    id: "pa-rectangular-prism",
+    name: "PA — Rectangular Prism (Volume/SA)",
+    defaultDescription:
+      "Draw a rectangular prism. Label length = 12, width = 5, height = 7. No shading.",
+    promptBuilder: (desc) => `
+${JSON_SCHEMA_BLOCK}
+
+Diagram request:
+${desc}
+
+Extra constraints:
+- Use polygons + segments for a clean box in perspective.
+- Place L, W, H labels near appropriate edges.
+`.trim(),
+    starterJSON: JSON.stringify(
+      {
+        canvas: { width: 900, height: 450, bg: "#ffffff" },
+        defaults: defaultsBlock(),
+        polygons: [
+          { points: [[280, 160], [560, 160], [560, 330], [280, 330]] }, // front
+          { points: [[280, 160], [360, 100], [640, 100], [560, 160]] }, // top
+          { points: [[560, 160], [640, 100], [640, 270], [560, 330]] }, // side
+        ],
+        labels: [
+          { text: "12", x: 420, y: 350, bold: true },
+          { text: "7", x: 260, y: 245, bold: true },
+          { text: "5", x: 615, y: 125, bold: true },
+        ],
+      },
+      null,
+      2
+    ),
+  },
+
+  {
+    id: "pa-triangular-prism",
+    name: "PA — Triangular Prism (Volume/SA)",
+    defaultDescription:
+      "Draw a triangular prism in perspective. Label the triangular base vertices A, B, C.",
+    promptBuilder: (desc) => `
+${JSON_SCHEMA_BLOCK}
+
+Diagram request:
+${desc}
+
+Extra constraints:
+- Use two similar triangles offset + connecting segments.
+- Keep it centered and clean.
+`.trim(),
+    starterJSON: JSON.stringify(
+      {
+        canvas: { width: 900, height: 450, bg: "#ffffff" },
+        defaults: defaultsBlock(),
+        polygons: [
+          { points: [[300, 320], [260, 160], [420, 220]] }, // front tri
+          { points: [[470, 300], [430, 140], [590, 200]] }, // back tri
+        ],
+        segments: [
+          { a: [300, 320], b: [470, 300] },
+          { a: [260, 160], b: [430, 140] },
+          { a: [420, 220], b: [590, 200] },
+        ],
+        labels: [
+          { text: "A", x: 290, y: 340, bold: true },
+          { text: "B", x: 250, y: 145, bold: true },
+          { text: "C", x: 430, y: 205, bold: true },
+        ],
+      },
+      null,
+      2
+    ),
+  },
+
+  {
+    id: "pa-cylinder",
+    name: "PA — Cylinder (Volume/SA)",
+    defaultDescription:
+      "Draw a cylinder. Label radius r = 6 and height h = 10. No shading.",
+    promptBuilder: (desc) => `
+${JSON_SCHEMA_BLOCK}
+
+Diagram request:
+${desc}
+
+Extra constraints:
+- Use ellipses + segments.
+- Label radius and height clearly.
+`.trim(),
+    starterJSON: JSON.stringify(
+      {
+        canvas: { width: 900, height: 450, bg: "#ffffff" },
+        defaults: defaultsBlock(),
+        ellipses: [
+          { cx: 450, cy: 130, rx: 160, ry: 45, fill: "none" },
+          { cx: 450, cy: 320, rx: 160, ry: 45, fill: "none" },
+        ],
+        segments: [
+          { a: [290, 130], b: [290, 320] },
+          { a: [610, 130], b: [610, 320] },
+          { a: [450, 130], b: [560, 130] }, // radius marker
+        ],
+        points: [{ at: [450, 130], r: 4, fill: "#000000" }],
+        labels: [
+          { text: "h = 10", x: 635, y: 230, bold: true },
+          { text: "r = 6", x: 510, y: 110, bold: true },
+        ],
+      },
+      null,
+      2
+    ),
+  },
+
+  // ======================================================
   // UTILITY
-  // =========================
+  // ======================================================
   {
     id: "segment-diagram",
     name: "Utility — Line Segments + Points",
