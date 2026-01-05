@@ -8,7 +8,7 @@ app.innerHTML = `
     <div class="panel">
       <h3>Math Diagram Renderer (Zero Cost)</h3>
       <div class="sub">
-        Workflow: choose a template → copy the ChatGPT prompt → paste returned JSON → render → download SVG/PNG.
+        Workflow: choose a template → copy the ChatGPT prompt → paste returned JSON → render → drag labels → download.
       </div>
 
       <details open>
@@ -48,6 +48,10 @@ app.innerHTML = `
             <button id="dlSvg">Download SVG</button>
             <button id="dlPng">Download PNG</button>
           </div>
+
+          <div class="smallNote">
+            Drag tip: click & drag any label in the preview. It updates the JSON automatically.
+          </div>
         </div>
       </details>
     </div>
@@ -73,6 +77,7 @@ const btnSvg = document.getElementById("dlSvg") as HTMLButtonElement;
 const btnPng = document.getElementById("dlPng") as HTMLButtonElement;
 
 let lastSVG = "";
+let currentSpec: DiagramSpec | null = null;
 
 // ---------- localStorage helpers ----------
 const LS = {
@@ -120,7 +125,7 @@ descEl.value = templates[0].defaultDescription;
 promptOutEl.value = templates[0].promptBuilder(descEl.value);
 jsonEl.value = templates[0].starterJSON;
 
-// Restore prior session if exists (overrides defaults)
+// Restore prior session if exists
 loadState();
 
 // Ensure prompt matches restored template + desc
@@ -175,6 +180,69 @@ btnLoadExample.onclick = () => {
   render();
 };
 
+function attachLabelDragging() {
+  const svg = previewEl.querySelector("svg") as SVGSVGElement | null;
+  if (!svg || !currentSpec?.labels?.length) return;
+
+  let draggingIndex: number | null = null;
+  let draggingEl: SVGTextElement | null = null;
+
+  const toSvgXY = (clientX: number, clientY: number) => {
+    const pt = svg.createSVGPoint();
+    pt.x = clientX;
+    pt.y = clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: 0, y: 0 };
+    const p = pt.matrixTransform(ctm.inverse());
+    return { x: p.x, y: p.y };
+  };
+
+  svg.onpointerdown = (e: PointerEvent) => {
+    const target = e.target as Element | null;
+    if (!target) return;
+
+    if (target.tagName.toLowerCase() !== "text") return;
+
+    const idxStr = target.getAttribute("data-label-index");
+    if (idxStr == null) return;
+
+    const idx = Number(idxStr);
+    if (!Number.isFinite(idx) || !currentSpec?.labels?.[idx]) return;
+
+    draggingIndex = idx;
+    draggingEl = target as SVGTextElement;
+
+    draggingEl.setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+  };
+
+  svg.onpointermove = (e: PointerEvent) => {
+    if (draggingIndex == null || !draggingEl || !currentSpec?.labels) return;
+
+    const { x, y } = toSvgXY(e.clientX, e.clientY);
+
+    draggingEl.setAttribute("x", String(x));
+    draggingEl.setAttribute("y", String(y));
+
+    currentSpec.labels[draggingIndex].x = x;
+    currentSpec.labels[draggingIndex].y = y;
+  };
+
+  svg.onpointerup = (e: PointerEvent) => {
+    if (draggingIndex == null || !currentSpec) return;
+
+    // sync JSON once at the end (keeps typing smooth)
+    jsonEl.value = JSON.stringify(currentSpec, null, 2);
+    saveState();
+
+    draggingIndex = null;
+    draggingEl = null;
+    e.preventDefault();
+  };
+
+  svg.onpointercancel = svg.onpointerup;
+}
+
 function render() {
   errEl.textContent = "";
   try {
@@ -182,17 +250,22 @@ function render() {
     if (!raw) {
       previewEl.innerHTML = "";
       lastSVG = "";
+      currentSpec = null;
       return;
     }
 
     const obj = JSON.parse(raw);
     const spec = validateSpec(obj) as DiagramSpec;
+    currentSpec = spec;
 
     lastSVG = renderDiagramSVG(spec);
     previewEl.innerHTML = lastSVG;
+
+    attachLabelDragging();
   } catch (e: any) {
     previewEl.innerHTML = "";
     lastSVG = "";
+    currentSpec = null;
     errEl.textContent = e?.message ?? String(e);
   }
 }
@@ -200,8 +273,9 @@ function render() {
 btnRender.onclick = render;
 
 btnSvg.onclick = () => {
-  if (!lastSVG) return;
-  const blob = new Blob([lastSVG], { type: "image/svg+xml" });
+  if (!currentSpec) return;
+  const svgText = renderDiagramSVG(currentSpec);
+  const blob = new Blob([svgText], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -213,9 +287,10 @@ btnSvg.onclick = () => {
 };
 
 btnPng.onclick = async () => {
-  if (!lastSVG) return;
+  if (!currentSpec) return;
 
-  const svgBlob = new Blob([lastSVG], { type: "image/svg+xml;charset=utf-8" });
+  const svgText = renderDiagramSVG(currentSpec);
+  const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
   const url = URL.createObjectURL(svgBlob);
 
   const img = new Image();

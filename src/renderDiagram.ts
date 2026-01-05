@@ -5,7 +5,6 @@ export type DiagramSpec = {
     bg: string;
   };
 
-  // 2D primitives
   polygons?: {
     id?: string;
     points: [number, number][];
@@ -198,14 +197,24 @@ export function renderDiagramSVG(spec: DiagramSpec) {
     })
     .join("\n");
 
+  // IMPORTANT: labels include data-label-index to enable dragging
   const labels = (spec.labels ?? [])
-    .map((l) => {
+    .map((l, i) => {
       const weight = l.bold ? 700 : 400;
       const fs = n(l.fontSize, baseFontSize);
       const color = s(l.color, labelColor);
-      return `<text x="${n(l.x, 0)}" y="${n(l.y, 0)}" fill="${color}" font-size="${fs}"
-        font-family="${esc(fontFamily)}" font-weight="${weight}"
-        dominant-baseline="middle" text-anchor="middle">${esc(l.text)}</text>`;
+      return `<text
+        data-label-index="${i}"
+        x="${n(l.x, 0)}"
+        y="${n(l.y, 0)}"
+        fill="${color}"
+        font-size="${fs}"
+        font-family="${esc(fontFamily)}"
+        font-weight="${weight}"
+        dominant-baseline="middle"
+        text-anchor="middle"
+        style="cursor: move;"
+      >${esc(l.text)}</text>`;
     })
     .join("\n");
 

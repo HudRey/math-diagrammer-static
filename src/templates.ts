@@ -41,15 +41,26 @@ Rules:
 - canvas must be 900x450, bg "#ffffff"
 - use crisp black strokes "#000000"
 - keep shapes and labels at least 40px from edges
-- labels should be readable and near their intended features (vertices, sides, radii, heights, etc.)
-- do not include side lengths unless the prompt asks
+- labels should be readable and near their intended features
+- include side-length labels ONLY when the diagram request asks (these templates DO include side labels because they’re for measurement problems)
 `.trim();
 
-// --- helpers for “similar triangles” template (dynamic letters + correspondence) ---
+function defaultsBlock() {
+  return {
+    stroke: "#000000",
+    strokeWidth: 3,
+    fill: "none",
+    fontFamily: "Arial, system-ui, sans-serif",
+    fontSize: 18,
+    labelColor: "#000000",
+  };
+}
+
+// Similar triangles helpers (still useful for proportions)
 function extractTriangleTriples(desc: string): { tri1: string; tri2: string } {
   const m = desc.match(/triangles?\s+([A-Z]{3})\s+and\s+([A-Z]{3})/i);
   if (m) return { tri1: m[1].toUpperCase(), tri2: m[2].toUpperCase() };
-  return { tri1: "ABC", tri2: "DEF" };
+  return { tri1: "ABC", tri2: "MNO" };
 }
 
 function extractCorrespondingSides(desc: string): { side1: string; side2: string } | null {
@@ -71,24 +82,226 @@ function buildVertexMapping(tri1: string, tri2: string, side1: string, side2: st
   return { pairs: [`${a1}↔${a2}`, `${b1}↔${b2}`, `${c1}↔${c2}`] };
 }
 
-function defaultsBlock() {
-  return {
-    stroke: "#000000",
-    strokeWidth: 3,
-    fill: "none",
-    fontFamily: "Arial, system-ui, sans-serif",
-    fontSize: 18,
-    labelColor: "#000000",
-  };
-}
-
-export const templates = [
-  // ---- Similar triangles (dynamic letters) ----
+export const templates: Template[] = [
+  // =========================
+  // PRE-ALGEBRA: MISSING SIDE (Perimeter)
+  // =========================
   {
-    id: "similar-triangles",
-    name: "Similar Triangles (dynamic letters)",
+    id: "pa-rectangle-missing-side-x",
+    name: "Pre-Algebra — Rectangle Missing Side (x)",
     defaultDescription:
-      "Draw two similar triangles ABC and MNO where AB and MN are corresponding sides. Label vertices only.",
+      "Draw a rectangle for a perimeter problem. Label three sides: top = 12 cm, left = 7 cm, right = 7 cm. Label the bottom side as x cm.",
+    promptBuilder: (desc) => `
+${JSON_SCHEMA_BLOCK}
+
+Diagram request:
+${desc}
+
+Extra constraints:
+- Use one rect.
+- Put labels centered on each side.
+- Use 'x' for the unknown side label if requested.
+`.trim(),
+    starterJSON: JSON.stringify(
+      {
+        canvas: { width: 900, height: 450, bg: "#ffffff" },
+        defaults: defaultsBlock(),
+        rects: [{ x: 250, y: 120, w: 420, h: 220 }],
+        labels: [
+          { text: "12 cm", x: 460, y: 105, bold: true }, // top
+          { text: "x cm", x: 460, y: 365, bold: true },  // bottom unknown
+          { text: "7 cm", x: 230, y: 230, bold: true },  // left
+          { text: "7 cm", x: 690, y: 230, bold: true },  // right
+        ],
+      },
+      null,
+      2
+    ),
+  },
+
+  {
+    id: "pa-rectangle-missing-side-q",
+    name: "Pre-Algebra — Rectangle Missing Side (?)",
+    defaultDescription:
+      "Draw a rectangle for a perimeter problem. Label three sides: top = 18 in, left = 9 in, bottom = 18 in. Label the right side as ?.",
+    promptBuilder: (desc) => `
+${JSON_SCHEMA_BLOCK}
+
+Diagram request:
+${desc}
+
+Extra constraints:
+- Use one rect.
+- Put labels centered on each side.
+- Use '?' for unknown if requested.
+`.trim(),
+    starterJSON: JSON.stringify(
+      {
+        canvas: { width: 900, height: 450, bg: "#ffffff" },
+        defaults: defaultsBlock(),
+        rects: [{ x: 250, y: 120, w: 420, h: 220 }],
+        labels: [
+          { text: "18 in", x: 460, y: 105, bold: true }, // top
+          { text: "18 in", x: 460, y: 365, bold: true }, // bottom
+          { text: "9 in", x: 230, y: 230, bold: true },  // left
+          { text: "?", x: 690, y: 230, bold: true },     // right unknown
+        ],
+      },
+      null,
+      2
+    ),
+  },
+
+  // =========================
+  // PRE-ALGEBRA: UNIT CONVERSION LABELS
+  // =========================
+  {
+    id: "pa-rectangle-unit-conversion-cm-m",
+    name: "Pre-Algebra — Unit Conversion (cm ↔ m)",
+    defaultDescription:
+      "Draw a rectangle with one side labeled 250 cm and the adjacent side labeled 1.8 m. (Unit conversion problem.)",
+    promptBuilder: (desc) => `
+${JSON_SCHEMA_BLOCK}
+
+Diagram request:
+${desc}
+
+Extra constraints:
+- Use one rect.
+- Put unit labels clearly on the sides.
+- Keep spacing generous so units are readable.
+`.trim(),
+    starterJSON: JSON.stringify(
+      {
+        canvas: { width: 900, height: 450, bg: "#ffffff" },
+        defaults: defaultsBlock(),
+        rects: [{ x: 270, y: 130, w: 380, h: 200 }],
+        labels: [
+          { text: "250 cm", x: 460, y: 115, bold: true }, // top
+          { text: "1.8 m", x: 255, y: 230, bold: true },  // left
+        ],
+      },
+      null,
+      2
+    ),
+  },
+
+  {
+    id: "pa-rectangle-unit-conversion-in-ft",
+    name: "Pre-Algebra — Unit Conversion (in ↔ ft)",
+    defaultDescription:
+      "Draw a rectangle with one side labeled 36 in and the adjacent side labeled 4 ft. (Unit conversion problem.)",
+    promptBuilder: (desc) => `
+${JSON_SCHEMA_BLOCK}
+
+Diagram request:
+${desc}
+
+Extra constraints:
+- Use one rect.
+- Put unit labels clearly on the sides.
+- Keep spacing generous so units are readable.
+`.trim(),
+    starterJSON: JSON.stringify(
+      {
+        canvas: { width: 900, height: 450, bg: "#ffffff" },
+        defaults: defaultsBlock(),
+        rects: [{ x: 270, y: 130, w: 380, h: 200 }],
+        labels: [
+          { text: "36 in", x: 460, y: 115, bold: true },
+          { text: "4 ft", x: 255, y: 230, bold: true },
+        ],
+      },
+      null,
+      2
+    ),
+  },
+
+  // =========================
+  // PRE-ALGEBRA: AREA & PERIMETER BASICS
+  // =========================
+  {
+    id: "pa-rectangle-perimeter-area",
+    name: "Pre-Algebra — Rectangle (P/A with lengths)",
+    defaultDescription:
+      "Draw rectangle ABCD. Label vertices and label side lengths: AB = 12 cm, BC = 7 cm. No grid.",
+    promptBuilder: (desc) => `
+${JSON_SCHEMA_BLOCK}
+
+Diagram request:
+${desc}
+
+Extra constraints:
+- Use one rect.
+- Put length labels centered on each side (top/bottom match, left/right match).
+- Keep everything clean and not touching edges.
+`.trim(),
+    starterJSON: JSON.stringify(
+      {
+        canvas: { width: 900, height: 450, bg: "#ffffff" },
+        defaults: defaultsBlock(),
+        rects: [{ x: 250, y: 120, w: 420, h: 220 }],
+        labels: [
+          { text: "A", x: 245, y: 110, bold: true },
+          { text: "B", x: 675, y: 110, bold: true },
+          { text: "C", x: 675, y: 350, bold: true },
+          { text: "D", x: 245, y: 350, bold: true },
+
+          { text: "12 cm", x: 460, y: 105, bold: true },
+          { text: "12 cm", x: 460, y: 365, bold: true },
+          { text: "7 cm", x: 230, y: 230, bold: true },
+          { text: "7 cm", x: 690, y: 230, bold: true },
+        ],
+      },
+      null,
+      2
+    ),
+  },
+
+  {
+    id: "pa-triangle-base-height",
+    name: "Pre-Algebra — Triangle (base & height)",
+    defaultDescription:
+      "Draw a triangle with base labeled 14 cm and height labeled 9 cm (show altitude).",
+    promptBuilder: (desc) => `
+${JSON_SCHEMA_BLOCK}
+
+Diagram request:
+${desc}
+
+Extra constraints:
+- Use one triangle polygon.
+- Show a height (altitude) from a vertex to the base using segments.
+- Put base and height labels near correct parts.
+`.trim(),
+    starterJSON: JSON.stringify(
+      {
+        canvas: { width: 900, height: 450, bg: "#ffffff" },
+        defaults: defaultsBlock(),
+        polygons: [{ points: [[260, 340], [640, 340], [500, 150]] }],
+        segments: [
+          { a: [500, 150], b: [500, 340] },
+          { a: [500, 325], b: [515, 325] },
+          { a: [515, 325], b: [515, 340] },
+        ],
+        labels: [
+          { text: "14 cm", x: 450, y: 365, bold: true },
+          { text: "9 cm", x: 530, y: 245, bold: true },
+        ],
+      },
+      null,
+      2
+    ),
+  },
+
+  // =========================
+  // PRE-ALGEBRA: SIMILAR FIGURES / PROPORTIONS
+  // =========================
+  {
+    id: "pa-similar-triangles-dynamic",
+    name: "Pre-Algebra — Similar Triangles (dynamic letters)",
+    defaultDescription:
+      "Draw two similar triangles ABC and MNO where AB and MN are corresponding sides. Include AB = 6 cm and MN = 15 cm.",
     promptBuilder: (desc: string) => {
       const { tri1, tri2 } = extractTriangleTriples(desc);
       const corr = extractCorrespondingSides(desc);
@@ -102,7 +315,7 @@ export const templates = [
         mappingLine =
           `- Correspondence constraint: side ${corr.side1} in ${tri1} corresponds to side ${corr.side2} in ${tri2}.\n` +
           `  This implies vertex mapping: ${map.pairs.join(", ")}.\n` +
-          `  Draw/label triangles consistent with this mapping (orientation can differ, but correspondence must match).`;
+          `  Draw/label triangles consistent with this mapping.`;
       }
 
       return `
@@ -115,6 +328,7 @@ Extra constraints (important):
 - Triangle ${tri1} should be on the left half; triangle ${tri2} on the right half.
 - Use exactly 2 polygons total (one per triangle).
 - Labels: ${tri1List} near vertices of the first triangle; ${tri2List} near vertices of the second triangle.
+- Include any side-length labels the request mentions, placed near correct corresponding sides.
 ${mappingLine ? mappingLine : "- No additional correspondence constraints detected beyond similarity."}
 `.trim();
     },
@@ -123,29 +337,20 @@ ${mappingLine ? mappingLine : "- No additional correspondence constraints detect
         canvas: { width: 900, height: 450, bg: "#ffffff" },
         defaults: defaultsBlock(),
         polygons: [
-          {
-            points: [
-              [160, 360],
-              [120, 140],
-              [300, 270],
-            ],
-          },
-          {
-            points: [
-              [560, 390],
-              [500, 90],
-              [820, 270],
-            ],
-          },
+          { points: [[170, 340], [130, 160], [320, 260]] },
+          { points: [[560, 380], [500, 100], [820, 260]] },
         ],
         labels: [
-          { text: "A", x: 160, y: 385, bold: true },
-          { text: "B", x: 310, y: 270, bold: true },
-          { text: "C", x: 110, y: 135, bold: true },
+          { text: "A", x: 170, y: 365, bold: true },
+          { text: "B", x: 330, y: 255, bold: true },
+          { text: "C", x: 120, y: 145, bold: true },
 
-          { text: "D", x: 560, y: 415, bold: true },
-          { text: "E", x: 835, y: 270, bold: true },
-          { text: "F", x: 490, y: 85, bold: true },
+          { text: "M", x: 560, y: 405, bold: true },
+          { text: "N", x: 835, y: 260, bold: true },
+          { text: "O", x: 490, y: 90, bold: true },
+
+          { text: "6 cm", x: 245, y: 305, bold: true },
+          { text: "15 cm", x: 700, y: 335, bold: true },
         ],
       },
       null,
@@ -153,430 +358,15 @@ ${mappingLine ? mappingLine : "- No additional correspondence constraints detect
     ),
   },
 
-  // ---- Similar rectangles (scale factor) ----
-  {
-    id: "similar-rectangles",
-    name: "Similar Rectangles (scale factor)",
-    defaultDescription:
-      "Draw two similar rectangles. The second should be a scaled-up version. Label them R1 and R2 (no side lengths).",
-    promptBuilder: (desc: string) => `
-${JSON_SCHEMA_BLOCK}
-
-Diagram request:
-${desc}
-
-Extra constraints:
-- Use rects for the rectangles.
-- Put the smaller rectangle on the left, larger on the right.
-- Labels should not overlap the rectangles.
-`.trim(),
-    starterJSON: JSON.stringify(
-      {
-        canvas: { width: 900, height: 450, bg: "#ffffff" },
-        defaults: defaultsBlock(),
-        rects: [
-          { x: 140, y: 140, w: 220, h: 140 },
-          { x: 520, y: 110, w: 300, h: 190 },
-        ],
-        labels: [
-          { text: "R1", x: 250, y: 120, bold: true },
-          { text: "R2", x: 670, y: 90, bold: true },
-        ],
-      },
-      null,
-      2
-    ),
-  },
-
-  // ---- Rectangle / Square (area & perimeter) ----
-  {
-    id: "rectangle-area-perimeter",
-    name: "Rectangle / Square (area & perimeter)",
-    defaultDescription:
-      "Draw a rectangle ABCD (or a square) suitable for area/perimeter problems. Label vertices only.",
-    promptBuilder: (desc: string) => `
-${JSON_SCHEMA_BLOCK}
-
-Diagram request:
-${desc}
-
-Extra constraints:
-- Use a rect (not a polygon) for clean edges.
-- Label vertices at corners if named.
-`.trim(),
-    starterJSON: JSON.stringify(
-      {
-        canvas: { width: 900, height: 450, bg: "#ffffff" },
-        defaults: defaultsBlock(),
-        rects: [{ x: 260, y: 120, w: 380, h: 220 }],
-        labels: [
-          { text: "A", x: 260, y: 110, bold: true },
-          { text: "B", x: 640, y: 110, bold: true },
-          { text: "C", x: 640, y: 350, bold: true },
-          { text: "D", x: 260, y: 350, bold: true },
-        ],
-      },
-      null,
-      2
-    ),
-  },
-
-  // ---- Right triangle (area, Pythagorean, trig) ----
-  {
-    id: "right-triangle",
-    name: "Right Triangle",
-    defaultDescription:
-      "Draw a right triangle with a clear right angle marker at one vertex. Label vertices A, B, C.",
-    promptBuilder: (desc: string) => `
-${JSON_SCHEMA_BLOCK}
-
-Diagram request:
-${desc}
-
-Extra constraints:
-- Use one polygon for the triangle.
-- Add a small right-angle marker using segments near the right angle vertex.
-`.trim(),
-    starterJSON: JSON.stringify(
-      {
-        canvas: { width: 900, height: 450, bg: "#ffffff" },
-        defaults: defaultsBlock(),
-        polygons: [
-          {
-            points: [
-              [260, 340],
-              [260, 140],
-              [620, 340],
-            ],
-          },
-        ],
-        // right angle marker at A = (260,340)? Actually the right angle is at (260,340) if legs go vertical + horizontal.
-        // We'll place marker near that corner.
-        segments: [
-          { a: [275, 340], b: [275, 325] },
-          { a: [275, 325], b: [290, 325] },
-        ],
-        labels: [
-          { text: "A", x: 245, y: 350, bold: true },
-          { text: "B", x: 245, y: 130, bold: true },
-          { text: "C", x: 635, y: 350, bold: true },
-        ],
-      },
-      null,
-      2
-    ),
-  },
-
-  // ---- Parallelogram ----
-  {
-    id: "parallelogram",
-    name: "Parallelogram",
-    defaultDescription:
-      "Draw a parallelogram labeled ABCD suitable for area problems (base/height). Label vertices only.",
-    promptBuilder: (desc: string) => `
-${JSON_SCHEMA_BLOCK}
-
-Diagram request:
-${desc}
-
-Extra constraints:
-- Use one polygon.
-- Keep it centered and clean.
-`.trim(),
-    starterJSON: JSON.stringify(
-      {
-        canvas: { width: 900, height: 450, bg: "#ffffff" },
-        defaults: defaultsBlock(),
-        polygons: [
-          {
-            points: [
-              [260, 320],
-              [380, 150],
-              [690, 150],
-              [570, 320],
-            ],
-          },
-        ],
-        labels: [
-          { text: "A", x: 250, y: 335, bold: true },
-          { text: "B", x: 370, y: 135, bold: true },
-          { text: "C", x: 700, y: 135, bold: true },
-          { text: "D", x: 580, y: 335, bold: true },
-        ],
-      },
-      null,
-      2
-    ),
-  },
-
-  // ---- Trapezoid ----
-  {
-    id: "trapezoid",
-    name: "Trapezoid",
-    defaultDescription:
-      "Draw a trapezoid labeled ABCD suitable for area problems (bases and height). Label vertices only.",
-    promptBuilder: (desc: string) => `
-${JSON_SCHEMA_BLOCK}
-
-Diagram request:
-${desc}
-
-Extra constraints:
-- Use one polygon.
-- Make the top base shorter than the bottom base.
-`.trim(),
-    starterJSON: JSON.stringify(
-      {
-        canvas: { width: 900, height: 450, bg: "#ffffff" },
-        defaults: defaultsBlock(),
-        polygons: [
-          {
-            points: [
-              [260, 330],
-              [360, 150],
-              [620, 150],
-              [720, 330],
-            ],
-          },
-        ],
-        labels: [
-          { text: "A", x: 250, y: 345, bold: true },
-          { text: "B", x: 350, y: 135, bold: true },
-          { text: "C", x: 630, y: 135, bold: true },
-          { text: "D", x: 730, y: 345, bold: true },
-        ],
-      },
-      null,
-      2
-    ),
-  },
-
-  // ---- Circle (radius/diameter/circumference/area) ----
-  {
-    id: "circle",
-    name: "Circle (radius/diameter)",
-    defaultDescription:
-      "Draw a circle with center O. Include one radius segment and label O and a point A on the circle.",
-    promptBuilder: (desc: string) => `
-${JSON_SCHEMA_BLOCK}
-
-Diagram request:
-${desc}
-
-Extra constraints:
-- Use a circle primitive.
-- Add a radius segment from center to a point on the circle.
-`.trim(),
-    starterJSON: JSON.stringify(
-      {
-        canvas: { width: 900, height: 450, bg: "#ffffff" },
-        defaults: defaultsBlock(),
-        circles: [{ cx: 450, cy: 225, r: 140 }],
-        segments: [{ a: [450, 225], b: [590, 225] }],
-        points: [
-          { at: [450, 225], r: 4, fill: "#000000" },
-          { at: [590, 225], r: 4, fill: "#000000" },
-        ],
-        labels: [
-          { text: "O", x: 430, y: 245, bold: true },
-          { text: "A", x: 610, y: 225, bold: true },
-        ],
-      },
-      null,
-      2
-    ),
-  },
-
-  // ---- Composite L-shape (area of composite figures) ----
-  {
-    id: "composite-l-shape",
-    name: "Composite L-Shape",
-    defaultDescription:
-      "Draw an L-shaped composite figure (two rectangles joined). Label key corner points.",
-    promptBuilder: (desc: string) => `
-${JSON_SCHEMA_BLOCK}
-
-Diagram request:
-${desc}
-
-Extra constraints:
-- Use polygons OR rects (either is fine) but keep edges axis-aligned.
-- Leave space around it for labels.
-`.trim(),
-    starterJSON: JSON.stringify(
-      {
-        canvas: { width: 900, height: 450, bg: "#ffffff" },
-        defaults: defaultsBlock(),
-        polygons: [
-          {
-            points: [
-              [250, 120],
-              [620, 120],
-              [620, 200],
-              [430, 200],
-              [430, 340],
-              [250, 340],
-            ],
-          },
-        ],
-        labels: [
-          { text: "A", x: 240, y: 110, bold: true },
-          { text: "B", x: 630, y: 110, bold: true },
-          { text: "C", x: 630, y: 210, bold: true },
-          { text: "D", x: 420, y: 210, bold: true },
-          { text: "E", x: 420, y: 350, bold: true },
-          { text: "F", x: 240, y: 350, bold: true },
-        ],
-      },
-      null,
-      2
-    ),
-  },
-
-  // ---- Rectangular prism (surface area/volume) ----
-  {
-    id: "rectangular-prism",
-    name: "Rectangular Prism (SA/Volume)",
-    defaultDescription:
-      "Draw a rectangular prism in simple 2D perspective (no shading). Label key vertices or faces if needed.",
-    promptBuilder: (desc: string) => `
-${JSON_SCHEMA_BLOCK}
-
-Diagram request:
-${desc}
-
-Extra constraints:
-- Use polygons + segments to show a clean prism.
-- Keep it centered and avoid clutter.
-`.trim(),
-    starterJSON: JSON.stringify(
-      {
-        canvas: { width: 900, height: 450, bg: "#ffffff" },
-        defaults: defaultsBlock(),
-        // front face rectangle corners
-        polygons: [
-          {
-            points: [
-              [280, 150],
-              [560, 150],
-              [560, 330],
-              [280, 330],
-            ],
-          },
-          // top face
-          {
-            points: [
-              [280, 150],
-              [360, 90],
-              [640, 90],
-              [560, 150],
-            ],
-          },
-          // side face
-          {
-            points: [
-              [560, 150],
-              [640, 90],
-              [640, 270],
-              [560, 330],
-            ],
-          },
-        ],
-        labels: [
-          { text: "Rectangular Prism", x: 450, y: 50, bold: true },
-        ],
-      },
-      null,
-      2
-    ),
-  },
-
-  // ---- Triangular prism (surface area/volume) ----
-  {
-    id: "triangular-prism",
-    name: "Triangular Prism (SA/Volume)",
-    defaultDescription:
-      "Draw a triangular prism in simple 2D perspective. Label the triangular base vertices.",
-    promptBuilder: (desc: string) => `
-${JSON_SCHEMA_BLOCK}
-
-Diagram request:
-${desc}
-
-Extra constraints:
-- Use two similar triangles offset + connecting segments.
-- Keep it centered and clean.
-`.trim(),
-    starterJSON: JSON.stringify(
-      {
-        canvas: { width: 900, height: 450, bg: "#ffffff" },
-        defaults: defaultsBlock(),
-        polygons: [
-          // front triangle
-          { points: [[300, 320], [260, 160], [420, 220]] },
-          // back triangle (offset)
-          { points: [[470, 300], [430, 140], [590, 200]] },
-        ],
-        segments: [
-          { a: [300, 320], b: [470, 300] },
-          { a: [260, 160], b: [430, 140] },
-          { a: [420, 220], b: [590, 200] },
-        ],
-        labels: [
-          { text: "A", x: 290, y: 340, bold: true },
-          { text: "B", x: 250, y: 145, bold: true },
-          { text: "C", x: 430, y: 205, bold: true },
-        ],
-      },
-      null,
-      2
-    ),
-  },
-
-  // ---- Cylinder (surface area/volume) ----
-  {
-    id: "cylinder",
-    name: "Cylinder (SA/Volume)",
-    defaultDescription:
-      "Draw a cylinder (top ellipse + side walls + bottom ellipse hint). Label centerline if needed.",
-    promptBuilder: (desc: string) => `
-${JSON_SCHEMA_BLOCK}
-
-Diagram request:
-${desc}
-
-Extra constraints:
-- Use ellipses + segments.
-- Make the top ellipse visible, and show the bottom ellipse as a partial hint (can be a full ellipse with lighter stroke or dashed via segments if you prefer).
-`.trim(),
-    starterJSON: JSON.stringify(
-      {
-        canvas: { width: 900, height: 450, bg: "#ffffff" },
-        defaults: defaultsBlock(),
-        // top ellipse
-        ellipses: [
-          { cx: 450, cy: 140, rx: 160, ry: 45, fill: "none" },
-          // bottom ellipse (same size)
-          { cx: 450, cy: 320, rx: 160, ry: 45, fill: "none" },
-        ],
-        segments: [
-          { a: [290, 140], b: [290, 320] },
-          { a: [610, 140], b: [610, 320] },
-        ],
-        labels: [{ text: "Cylinder", x: 450, y: 50, bold: true }],
-      },
-      null,
-      2
-    ),
-  },
-
-  // ---- Simple segments template (kept from before) ----
+  // =========================
+  // UTILITY
+  // =========================
   {
     id: "segment-diagram",
-    name: "Line Segments + Points",
+    name: "Utility — Line Segments + Points",
     defaultDescription:
       "Draw a segment AB and a segment CD. Mark endpoints with points and label A,B,C,D.",
-    promptBuilder: (desc: string) => `
+    promptBuilder: (desc) => `
 ${JSON_SCHEMA_BLOCK}
 
 Diagram request:
@@ -611,10 +401,4 @@ Extra constraints:
       2
     ),
   },
-] satisfies {
-  id: string;
-  name: string;
-  defaultDescription: string;
-  promptBuilder: (d: string) => string;
-  starterJSON: string;
-}[];
+];
