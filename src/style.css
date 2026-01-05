@@ -1,0 +1,134 @@
+:root { color-scheme: light; }
+
+body {
+  margin: 0;
+  font-family: Arial, system-ui, sans-serif;
+  background: #f6f6f6;
+  color: #111;
+}
+
+.layout {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  align-items: flex-start;
+}
+
+.panel {
+  width: 460px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.previewWrap {
+  flex: 1;
+  position: sticky;
+  top: 16px;
+  align-self: flex-start;
+  height: calc(100vh - 32px);
+  overflow: auto;
+}
+
+.preview {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 12px;
+  min-height: 740px;
+}
+
+h3 { margin: 6px 0 4px; }
+.sub { font-size: 12px; color: #444; margin-top: 6px; }
+
+label { display: block; font-size: 12px; color: #444; margin-top: 10px; }
+
+textarea {
+  width: 100%;
+  height: 220px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid #ccc;
+  padding: 10px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+input[type="text"], select {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid #ccc;
+  padding: 10px;
+  font-size: 12px;
+  background: #fff;
+}
+
+button {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid #ccc;
+  background: #f2f2f2;
+  cursor: pointer;
+}
+button:hover { background: #eaeaea; }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+.row > button {
+  width: auto;
+  flex: 1;
+}
+
+details {
+  border: 1px solid #e3e3e3;
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-top: 10px;
+  background: #fafafa;
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 700;
+  user-select: none;
+  list-style: none;
+}
+summary::-webkit-details-marker { display: none; }
+
+summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 8px;
+  transform: translateY(-1px);
+}
+details[open] summary::before { content: "▾"; }
+
+.sectionBody { margin-top: 10px; }
+
+.err {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #b00020;
+  white-space: pre-wrap;
+}
+
+.smallNote {
+  font-size: 12px;
+  color: #444;
+  margin-top: 6px;
+}
+
+code {
+  background: #f2f2f2;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
