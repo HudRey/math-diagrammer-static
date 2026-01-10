@@ -1,9 +1,12 @@
 import OpenAI from "openai";
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 const DIAGRAM_SCHEMA = {
   name: "diagram_spec",
+  strict: true,
   schema: {
     type: "object",
     additionalProperties: false,
@@ -153,7 +156,6 @@ const DIAGRAM_SCHEMA = {
     },
     required: ["canvas", "defaults"],
   },
-  strict: true,
 };
 
 function systemPrompt() {
@@ -162,72 +164,63 @@ You output diagram JSON that matches the schema exactly.
 
 Hard rules:
 - canvas is 900x450 with bg "#ffffff"
-- default stroke "#000000", no extra keys
+- defaults.stroke "#000000"
 - keep shapes and labels at least 40px from edges
-- labels readable and near their intended objects
+- labels readable and near intended objects
 - do not invent side lengths unless the user asks
+- do not include extra keys
 `.trim();
 }
 
-export default {
-  async fetch(request: Request) {
-    try {
-      if (request.method !== "POST") {
-        return new Response(JSON.stringify({ error: "Use POST" }), {
-          status: 405,
-          headers: { "content-type": "application/json" },
-        });
-      }
-
-      const body = await request.json().catch(() => null);
-      const description = body?.description;
-
-      if (!description || typeof description !== "string") {
-        return new Response(JSON.stringify({ error: "Missing description" }), {
-          status: 400,
-          headers: { "content-type": "application/json" },
-        });
-      }
-
-      const resp = await client.responses.create({
-        model: "gpt-4o-mini",
-        input: [
-          { role: "system", content: systemPrompt() },
-          { role: "user", content: description },
-        ],
-        text: {
-          format: {
-            type: "json_schema",
-            strict: true,
-            name: DIAGRAM_SCHEMA.name,
-            schema: DIAGRAM_SCHEMA.schema,
-          },
-        },
-        max_output_tokens: 1200,
-      });
-
-      const out = resp.output?.[0];
-      const content = out?.content?.[0];
-      const jsonText = (content as any)?.text;
-
-      if (!jsonText) {
-        return new Response(JSON.stringify({ error: "No model output" }), {
-          status: 500,
-          headers: { "content-type": "application/json" },
-        });
-      }
-
-      const diagram = JSON.parse(jsonText);
-
-      return new Response(JSON.stringify({ diagram, usage: resp.usage ?? null }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    } catch (e: any) {
-      return new Response(JSON.stringify({ error: e?.message ?? String(e) }), {
-        status: 500,
-        headers: { "content-type": "application/json" },
-      });
-    }
-  },
+// Vercel Node runtime (recommended for OpenAI)
+export const config = {
+  runtime: "nodejs",
 };
+
+export default async function handler(req: any, res: any) {
+  try {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Use POST" });
+      return;
+    }
+
+    const description = req.body?.description;
+    if (!description || typeof description !== "string") {
+      res.status(400).json({ error: "Missing description" });
+      return;
+    }
+
+    const resp = await client.responses.create({
+      model: "gpt-4o-mini",
+      input: [
+        { role: "system", content: systemPrompt() },
+        { role: "user", content: description },
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          strict: true,
+          name: DIAGRAM_SCHEMA.name,
+          schema: DIAGRAM_SCHEMA.schema,
+        },
+      },
+      max_output_tokens: 1200,
+    });
+
+    // ✅ Use the SDK convenience property
+    const jsonText = resp.output_text; // docs recommend this :contentReference[oaicite:1]{index=1}
+    if (!jsonText || typeof jsonText !== "string") {
+      res.status(500).json({ error: "Empty output_text from model." });
+      return;
+    }
+
+    const diagram = JSON.parse(jsonText);
+
+    res.status(200).json({
+      diagram,
+      usage: resp.usage ?? null,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message ?? String(e) });
+  }
+}
