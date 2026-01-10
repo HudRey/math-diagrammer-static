@@ -1,327 +1,470 @@
-import "./style.css";
-import { renderDiagramSVG, validateSpec, type DiagramSpec } from "./renderDiagram";
-import { templates } from "./templates";
+type Diagram = {
+  canvas: { width: number; height: number; bg: string };
+  defaults: {
+    stroke: string;
+    strokeWidth: number;
+    fill: string;
+    fontFamily: string;
+    fontSize: number;
+    labelColor: string;
+  };
+  rects: Array<{
+    x: number; y: number; w: number; h: number;
+    stroke: string; strokeWidth: number; fill: string; rx: number; ry: number;
+  }>;
+  circles: Array<{
+    cx: number; cy: number; r: number;
+    stroke: string; strokeWidth: number; fill: string;
+  }>;
+  ellipses: Array<{
+    cx: number; cy: number; rx: number; ry: number;
+    stroke: string; strokeWidth: number; fill: string;
+  }>;
+  polygons: Array<{
+    points: number[][];
+    stroke: string; strokeWidth: number; fill: string;
+  }>;
+  segments: Array<{
+    a: number[]; b: number[];
+    stroke: string; strokeWidth: number;
+  }>;
+  points: Array<{
+    at: number[]; r: number; fill: string; stroke: string; strokeWidth: number;
+  }>;
+  labels: Array<{
+    text: string; x: number; y: number;
+    color: string; fontSize: number; bold: boolean;
+  }>;
+};
 
-const app = document.querySelector<HTMLDivElement>("#app")!;
+type StylePrefs = {
+  stroke: string;         // outline
+  fill: string;           // shape fill
+  labelColor: string;     // annotations color
+  labelFontSize: number;  // annotations font size
+};
+
+const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
+
+const app = $("#app");
 app.innerHTML = `
   <div class="layout">
     <div class="panel">
-      <h3>Math Diagram Renderer (Zero Cost)</h3>
-      <div class="sub">
-        Workflow: choose a template → copy the ChatGPT prompt → paste returned JSON → render → drag labels → download.
+      <div class="title">Math Diagram Renderer</div>
+      <div class="sub">Describe your diagram → generate → drag labels → download.</div>
+
+      <label>Diagram description</label>
+      <textarea id="desc" placeholder="Example: Draw a rectangle for a perimeter problem. Label top 12 cm, left 7 cm, right 7 cm, bottom x cm."></textarea>
+
+      <details open>
+        <summary>Style</summary>
+        <div class="sectionBody">
+          <div class="row2">
+            <div>
+              <label>Outline</label>
+              <input id="stroke" type="color" value="#000000" />
+            </div>
+            <div>
+              <label>Fill</label>
+              <input id="fill" type="color" value="#ffffff" />
+            </div>
+          </div>
+
+          <div class="row2">
+            <div>
+              <label>Annotation color</label>
+              <input id="labelColor" type="color" value="#000000" />
+            </div>
+            <div>
+              <label>Annotation font size</label>
+              <input id="labelFontSize" type="number" min="10" max="64" step="1" value="22" />
+            </div>
+          </div>
+
+          <button id="applyStyle">Apply style to current diagram</button>
+        </div>
+      </details>
+
+      <div class="row2">
+        <button id="generate">Generate</button>
+        <button id="example">Load example</button>
       </div>
 
-      <details open>
-        <summary>1) Generate a ChatGPT prompt</summary>
-        <div class="sectionBody">
-          <label>Template</label>
-          <select id="template"></select>
+      <div id="status" class="status"></div>
+      <div id="err" class="err"></div>
 
-          <label>Diagram description (plain English)</label>
-          <textarea id="desc" style="height: 120px;"></textarea>
+      <div class="row2">
+        <button id="downloadSvg">Download SVG</button>
+        <button id="downloadPng">Download PNG</button>
+      </div>
 
-          <div class="row">
-            <button id="makePrompt">Build Prompt</button>
-            <button id="copyPrompt">Copy Prompt</button>
-          </div>
-
-          <label>Prompt to paste into ChatGPT</label>
-          <textarea id="promptOut" style="height: 170px;" readonly></textarea>
-          <div class="smallNote">Tip: Ask ChatGPT to return <code>ONLY JSON</code>.</div>
-        </div>
-      </details>
-
-      <details open>
-        <summary>2) Paste JSON and render</summary>
-        <div class="sectionBody">
-          <div class="row">
-            <button id="loadExample">Load Example JSON</button>
-            <button id="renderBtn">Render</button>
-          </div>
-
-          <label>Diagram JSON</label>
-          <textarea id="json"></textarea>
-
-          <div id="err" class="err"></div>
-
-          <div class="row">
-            <button id="dlSvg">Download SVG</button>
-            <button id="dlPng">Download PNG</button>
-          </div>
-
-          <div class="smallNote">
-            Drag tip: click & drag any label in the preview. It updates the JSON automatically.
-          </div>
-        </div>
-      </details>
+      <div class="hint">
+        Drag tip: click and drag any label directly on the diagram preview.
+      </div>
     </div>
 
     <div class="previewWrap">
-      <div class="preview" id="preview"></div>
+      <div class="preview">
+        <div class="previewTop">
+          <div class="previewTitle">Preview</div>
+        </div>
+        <div id="svgHost" class="svgHost"></div>
+      </div>
     </div>
   </div>
 `;
 
-const templateEl = document.getElementById("template") as HTMLSelectElement;
-const descEl = document.getElementById("desc") as HTMLTextAreaElement;
-const promptOutEl = document.getElementById("promptOut") as HTMLTextAreaElement;
-const jsonEl = document.getElementById("json") as HTMLTextAreaElement;
-const previewEl = document.getElementById("preview") as HTMLDivElement;
-const errEl = document.getElementById("err") as HTMLDivElement;
+const descEl = $("#desc") as HTMLTextAreaElement;
+const strokeEl = $("#stroke") as HTMLInputElement;
+const fillEl = $("#fill") as HTMLInputElement;
+const labelColorEl = $("#labelColor") as HTMLInputElement;
+const labelFontSizeEl = $("#labelFontSize") as HTMLInputElement;
 
-const btnMakePrompt = document.getElementById("makePrompt") as HTMLButtonElement;
-const btnCopyPrompt = document.getElementById("copyPrompt") as HTMLButtonElement;
-const btnLoadExample = document.getElementById("loadExample") as HTMLButtonElement;
-const btnRender = document.getElementById("renderBtn") as HTMLButtonElement;
-const btnSvg = document.getElementById("dlSvg") as HTMLButtonElement;
-const btnPng = document.getElementById("dlPng") as HTMLButtonElement;
+const statusEl = $("#status") as HTMLDivElement;
+const errEl = $("#err") as HTMLDivElement;
+const svgHost = $("#svgHost") as HTMLDivElement;
 
-let lastSVG = "";
-let currentSpec: DiagramSpec | null = null;
+const btnGenerate = $("#generate") as HTMLButtonElement;
+const btnExample = $("#example") as HTMLButtonElement;
+const btnApplyStyle = $("#applyStyle") as HTMLButtonElement;
+const btnDownloadSvg = $("#downloadSvg") as HTMLButtonElement;
+const btnDownloadPng = $("#downloadPng") as HTMLButtonElement;
 
-// ---------- localStorage helpers ----------
-const LS = {
-  template: "mdr.template",
-  desc: "mdr.desc",
-  prompt: "mdr.prompt",
-  json: "mdr.json",
-};
+let currentDiagram: Diagram | null = null;
 
-function saveState() {
-  localStorage.setItem(LS.template, templateEl.value);
-  localStorage.setItem(LS.desc, descEl.value);
-  localStorage.setItem(LS.prompt, promptOutEl.value);
-  localStorage.setItem(LS.json, jsonEl.value);
+// ---------- Helpers ----------
+function setStatus(msg: string) {
+  statusEl.textContent = msg;
+}
+function setError(msg: string) {
+  errEl.textContent = msg;
+}
+function clearMessages() {
+  setStatus("");
+  setError("");
 }
 
-function loadState() {
-  const t = localStorage.getItem(LS.template);
-  const d = localStorage.getItem(LS.desc);
-  const p = localStorage.getItem(LS.prompt);
-  const j = localStorage.getItem(LS.json);
-
-  if (t) templateEl.value = t;
-  if (d) descEl.value = d;
-  if (p) promptOutEl.value = p;
-  if (j) jsonEl.value = j;
+function getStylePrefs(): StylePrefs {
+  return {
+    stroke: strokeEl.value,
+    fill: fillEl.value,
+    labelColor: labelColorEl.value,
+    labelFontSize: clampInt(parseInt(labelFontSizeEl.value || "22", 10), 10, 64),
+  };
 }
 
-function getTemplate() {
-  const t = templates.find((x) => x.id === templateEl.value);
-  return t ?? templates[0];
+function clampInt(n: number, lo: number, hi: number) {
+  if (!Number.isFinite(n)) return lo;
+  return Math.max(lo, Math.min(hi, Math.round(n)));
 }
 
-// ---------- UI init ----------
-for (const t of templates) {
-  const opt = document.createElement("option");
-  opt.value = t.id;
-  opt.textContent = t.name;
-  templateEl.appendChild(opt);
+// Apply style prefs to an existing diagram (client-side overrides)
+function applyStyle(diagram: Diagram, prefs: StylePrefs): Diagram {
+  const d: Diagram = structuredClone(diagram);
+
+  d.defaults.stroke = prefs.stroke;
+  d.defaults.fill = prefs.fill;
+  d.defaults.labelColor = prefs.labelColor;
+  d.defaults.fontSize = prefs.labelFontSize;
+
+  // Apply stroke/fill to shapes
+  d.rects = d.rects.map(r => ({ ...r, stroke: prefs.stroke, fill: prefs.fill }));
+  d.circles = d.circles.map(c => ({ ...c, stroke: prefs.stroke, fill: prefs.fill }));
+  d.ellipses = d.ellipses.map(e => ({ ...e, stroke: prefs.stroke, fill: prefs.fill }));
+  d.polygons = d.polygons.map(p => ({ ...p, stroke: prefs.stroke, fill: prefs.fill }));
+  d.segments = d.segments.map(s => ({ ...s, stroke: prefs.stroke }));
+
+  // Points: keep point fill/stroke sensible (outline color used for stroke)
+  d.points = d.points.map(pt => ({
+    ...pt,
+    stroke: prefs.stroke,
+    fill: prefs.stroke, // points usually look better filled
+  }));
+
+  // Labels: color + font size
+  d.labels = d.labels.map(l => ({
+    ...l,
+    color: prefs.labelColor,
+    fontSize: prefs.labelFontSize,
+  }));
+
+  return d;
 }
 
-// Default initial values from first template
-templateEl.value = templates[0].id;
-descEl.value = templates[0].defaultDescription;
-promptOutEl.value = templates[0].promptBuilder(descEl.value);
-jsonEl.value = templates[0].starterJSON;
-
-// Restore prior session if exists
-loadState();
-
-// Ensure prompt matches restored template + desc
-{
-  const t = getTemplate();
-  if (!descEl.value.trim()) descEl.value = t.defaultDescription;
-  promptOutEl.value = t.promptBuilder(descEl.value.trim());
-  if (!jsonEl.value.trim()) jsonEl.value = t.starterJSON;
-  saveState();
+// ---------- Rendering ----------
+function esc(s: string) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-templateEl.onchange = () => {
-  const t = getTemplate();
-  descEl.value = t.defaultDescription;
-  promptOutEl.value = t.promptBuilder(descEl.value.trim());
-  jsonEl.value = t.starterJSON;
-  saveState();
-  render();
-};
+function renderSVG(diagram: Diagram): string {
+  const { width, height, bg } = diagram.canvas;
 
-// Auto-update prompt as the description changes
-descEl.oninput = () => {
-  const t = getTemplate();
-  promptOutEl.value = t.promptBuilder(descEl.value.trim());
-  saveState();
-};
+  const parts: string[] = [];
+  parts.push(
+    `<svg id="diagramSvg" xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`
+  );
+  parts.push(`<rect x="0" y="0" width="${width}" height="${height}" fill="${esc(bg)}" />`);
 
-jsonEl.oninput = () => saveState();
-
-btnMakePrompt.onclick = () => {
-  const t = getTemplate();
-  promptOutEl.value = t.promptBuilder(descEl.value.trim());
-  saveState();
-};
-
-btnCopyPrompt.onclick = async () => {
-  try {
-    await navigator.clipboard.writeText(promptOutEl.value);
-    btnCopyPrompt.textContent = "Copied!";
-    setTimeout(() => (btnCopyPrompt.textContent = "Copy Prompt"), 900);
-  } catch {
-    promptOutEl.focus();
-    promptOutEl.select();
-    document.execCommand("copy");
+  // rects
+  for (const r of diagram.rects) {
+    parts.push(
+      `<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="${r.rx}" ry="${r.ry}" ` +
+      `fill="${esc(r.fill)}" stroke="${esc(r.stroke)}" stroke-width="${r.strokeWidth}" />`
+    );
   }
-};
 
-btnLoadExample.onclick = () => {
-  const t = getTemplate();
-  jsonEl.value = t.starterJSON;
-  saveState();
-  render();
-};
+  // circles
+  for (const c of diagram.circles) {
+    parts.push(
+      `<circle cx="${c.cx}" cy="${c.cy}" r="${c.r}" fill="${esc(c.fill)}" stroke="${esc(c.stroke)}" stroke-width="${c.strokeWidth}" />`
+    );
+  }
 
-function attachLabelDragging() {
-  const svg = previewEl.querySelector("svg") as SVGSVGElement | null;
-  if (!svg || !currentSpec?.labels?.length) return;
+  // ellipses
+  for (const e of diagram.ellipses) {
+    parts.push(
+      `<ellipse cx="${e.cx}" cy="${e.cy}" rx="${e.rx}" ry="${e.ry}" fill="${esc(e.fill)}" stroke="${esc(e.stroke)}" stroke-width="${e.strokeWidth}" />`
+    );
+  }
 
-  let draggingIndex: number | null = null;
-  let draggingEl: SVGTextElement | null = null;
+  // polygons
+  for (const p of diagram.polygons) {
+    const pts = p.points.map(([x, y]) => `${x},${y}`).join(" ");
+    parts.push(
+      `<polygon points="${pts}" fill="${esc(p.fill)}" stroke="${esc(p.stroke)}" stroke-width="${p.strokeWidth}" />`
+    );
+  }
 
-  const toSvgXY = (clientX: number, clientY: number) => {
+  // segments
+  for (const s of diagram.segments) {
+    parts.push(
+      `<line x1="${s.a[0]}" y1="${s.a[1]}" x2="${s.b[0]}" y2="${s.b[1]}" ` +
+      `stroke="${esc(s.stroke)}" stroke-width="${s.strokeWidth}" stroke-linecap="round" />`
+    );
+  }
+
+  // points
+  for (const pt of diagram.points) {
+    parts.push(
+      `<circle cx="${pt.at[0]}" cy="${pt.at[1]}" r="${pt.r}" fill="${esc(pt.fill)}" stroke="${esc(pt.stroke)}" stroke-width="${pt.strokeWidth}" />`
+    );
+  }
+
+  // labels (draggable)
+  for (let i = 0; i < diagram.labels.length; i++) {
+    const l = diagram.labels[i];
+    const weight = l.bold ? 700 : 400;
+    parts.push(
+      `<text data-label-idx="${i}" x="${l.x}" y="${l.y}" fill="${esc(l.color)}" font-size="${l.fontSize}" ` +
+      `font-family="${esc(diagram.defaults.fontFamily)}" font-weight="${weight}" style="cursor: move; user-select: none;">${esc(l.text)}</text>`
+    );
+  }
+
+  parts.push(`</svg>`);
+  return parts.join("");
+}
+
+function mountDiagram(diagram: Diagram) {
+  currentDiagram = diagram;
+  svgHost.innerHTML = renderSVG(diagram);
+  hookDragHandlers();
+}
+
+function hookDragHandlers() {
+  const svg = document.getElementById("diagramSvg") as SVGSVGElement | null;
+  if (!svg || !currentDiagram) return;
+
+  let draggingIdx: number | null = null;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  const svgPoint = (clientX: number, clientY: number) => {
     const pt = svg.createSVGPoint();
     pt.x = clientX;
     pt.y = clientY;
     const ctm = svg.getScreenCTM();
-    if (!ctm) return { x: 0, y: 0 };
-    const p = pt.matrixTransform(ctm.inverse());
-    return { x: p.x, y: p.y };
+    if (!ctm) return { x: clientX, y: clientY };
+    const inv = ctm.inverse();
+    const loc = pt.matrixTransform(inv);
+    return { x: loc.x, y: loc.y };
   };
 
-  svg.onpointerdown = (e: PointerEvent) => {
-    const target = e.target as Element | null;
+  svg.addEventListener("pointerdown", (e) => {
+    const target = e.target as HTMLElement | null;
     if (!target) return;
+    const idxStr = target.getAttribute("data-label-idx");
+    if (!idxStr) return;
 
-    if (target.tagName.toLowerCase() !== "text") return;
+    const idx = parseInt(idxStr, 10);
+    if (!Number.isFinite(idx) || !currentDiagram) return;
 
-    const idxStr = target.getAttribute("data-label-index");
-    if (idxStr == null) return;
+    draggingIdx = idx;
 
-    const idx = Number(idxStr);
-    if (!Number.isFinite(idx) || !currentSpec?.labels?.[idx]) return;
+    const p = svgPoint(e.clientX, e.clientY);
+    const label = currentDiagram.labels[idx];
+    offsetX = label.x - p.x;
+    offsetY = label.y - p.y;
 
-    draggingIndex = idx;
-    draggingEl = target as SVGTextElement;
+    (target as any).setPointerCapture?.(e.pointerId);
+  });
 
-    draggingEl.setPointerCapture?.(e.pointerId);
-    e.preventDefault();
-  };
+  svg.addEventListener("pointermove", (e) => {
+    if (draggingIdx === null || !currentDiagram) return;
 
-  svg.onpointermove = (e: PointerEvent) => {
-    if (draggingIndex == null || !draggingEl || !currentSpec?.labels) return;
+    const p = svgPoint(e.clientX, e.clientY);
+    const newX = p.x + offsetX;
+    const newY = p.y + offsetY;
 
-    const { x, y } = toSvgXY(e.clientX, e.clientY);
+    // Update model
+    currentDiagram.labels[draggingIdx].x = Math.round(newX);
+    currentDiagram.labels[draggingIdx].y = Math.round(newY);
 
-    draggingEl.setAttribute("x", String(x));
-    draggingEl.setAttribute("y", String(y));
-
-    currentSpec.labels[draggingIndex].x = x;
-    currentSpec.labels[draggingIndex].y = y;
-  };
-
-  svg.onpointerup = (e: PointerEvent) => {
-    if (draggingIndex == null || !currentSpec) return;
-
-    // sync JSON once at the end (keeps typing smooth)
-    jsonEl.value = JSON.stringify(currentSpec, null, 2);
-    saveState();
-
-    draggingIndex = null;
-    draggingEl = null;
-    e.preventDefault();
-  };
-
-  svg.onpointercancel = svg.onpointerup;
-}
-
-function render() {
-  errEl.textContent = "";
-  try {
-    const raw = jsonEl.value.trim();
-    if (!raw) {
-      previewEl.innerHTML = "";
-      lastSVG = "";
-      currentSpec = null;
-      return;
+    // Update DOM directly (fast)
+    const textEl = svg.querySelector(`text[data-label-idx="${draggingIdx}"]`) as SVGTextElement | null;
+    if (textEl) {
+      textEl.setAttribute("x", String(currentDiagram.labels[draggingIdx].x));
+      textEl.setAttribute("y", String(currentDiagram.labels[draggingIdx].y));
     }
+  });
 
-    const obj = JSON.parse(raw);
-    const spec = validateSpec(obj) as DiagramSpec;
-    currentSpec = spec;
-
-    lastSVG = renderDiagramSVG(spec);
-    previewEl.innerHTML = lastSVG;
-
-    attachLabelDragging();
-  } catch (e: any) {
-    previewEl.innerHTML = "";
-    lastSVG = "";
-    currentSpec = null;
-    errEl.textContent = e?.message ?? String(e);
-  }
+  const endDrag = () => {
+    draggingIdx = null;
+  };
+  svg.addEventListener("pointerup", endDrag);
+  svg.addEventListener("pointercancel", endDrag);
 }
 
-btnRender.onclick = render;
+// ---------- API ----------
+async function generateFromDescription(description: string): Promise<Diagram> {
+  const resp = await fetch("/api/diagram", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ description }),
+  });
 
-btnSvg.onclick = () => {
-  if (!currentSpec) return;
-  const svgText = renderDiagramSVG(currentSpec);
-  const blob = new Blob([svgText], { type: "image/svg+xml" });
+  const data = await resp.json().catch(() => null);
+
+  if (!resp.ok) {
+    const msg = data?.error ? String(data.error) : `Request failed (${resp.status})`;
+    throw new Error(msg);
+  }
+
+  if (!data?.diagram) throw new Error("No diagram returned from API.");
+  return data.diagram as Diagram;
+}
+
+// ---------- Downloads ----------
+function downloadText(filename: string, text: string, mime = "text/plain") {
+  const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "diagram.svg";
-  document.body.appendChild(a);
+  a.download = filename;
   a.click();
-  a.remove();
   URL.revokeObjectURL(url);
-};
+}
 
-btnPng.onclick = async () => {
-  if (!currentSpec) return;
-
-  const svgText = renderDiagramSVG(currentSpec);
-  const svgBlob = new Blob([svgText], { type: "image/svg+xml;charset=utf-8" });
+function downloadPNGFromSVG(svgString: string, filename: string) {
+  const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
   const url = URL.createObjectURL(svgBlob);
 
   const img = new Image();
-  await new Promise<void>((res, rej) => {
-    img.onload = () => res();
-    img.onerror = () => rej(new Error("SVG→PNG conversion blocked by browser. Download SVG instead."));
-    img.src = url;
-  });
+  img.onload = () => {
+    const canvas = document.createElement("canvas");
+    // Use SVG's explicit size
+    const svgEl = document.getElementById("diagramSvg") as SVGSVGElement | null;
+    const w = svgEl ? Number(svgEl.getAttribute("width")) : 900;
+    const h = svgEl ? Number(svgEl.getAttribute("height")) : 450;
 
-  const canvas = document.createElement("canvas");
-  canvas.width = img.width;
-  canvas.height = img.height;
+    canvas.width = w;
+    canvas.height = h;
 
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(img, 0, 0);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-  URL.revokeObjectURL(url);
+    ctx.drawImage(img, 0, 0);
 
-  canvas.toBlob((blob) => {
-    if (!blob) return;
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "diagram.png";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(a.href);
-  }, "image/png");
-};
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const pngUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = pngUrl;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(pngUrl);
+    }, "image/png");
 
-// First render on load
-render();
+    URL.revokeObjectURL(url);
+  };
+
+  img.onerror = () => {
+    URL.revokeObjectURL(url);
+    throw new Error("PNG export failed to render image.");
+  };
+
+  img.src = url;
+}
+
+// ---------- UI wiring ----------
+btnExample.addEventListener("click", () => {
+  clearMessages();
+  descEl.value = "Draw a rectangle for a perimeter problem. Label top = 12 cm, left = 7 cm, right = 7 cm, bottom = x cm.";
+  setStatus("Example loaded. Click Generate.");
+});
+
+btnApplyStyle.addEventListener("click", () => {
+  clearMessages();
+  if (!currentDiagram) {
+    setError("No diagram yet. Click Generate first.");
+    return;
+  }
+  const styled = applyStyle(currentDiagram, getStylePrefs());
+  mountDiagram(styled);
+  setStatus("Style applied.");
+});
+
+btnGenerate.addEventListener("click", async () => {
+  clearMessages();
+  const description = descEl.value.trim();
+  if (!description) {
+    setError("Type a diagram description first.");
+    return;
+  }
+
+  btnGenerate.disabled = true;
+  setStatus("Generating…");
+
+  try {
+    const raw = await generateFromDescription(description);
+    const styled = applyStyle(raw, getStylePrefs());
+    mountDiagram(styled);
+    setStatus("Generated. Drag labels if needed, then download.");
+  } catch (e: any) {
+    setError(e?.message ?? String(e));
+    setStatus("");
+  } finally {
+    btnGenerate.disabled = false;
+  }
+});
+
+btnDownloadSvg.addEventListener("click", () => {
+  clearMessages();
+  if (!currentDiagram) {
+    setError("No diagram to download yet.");
+    return;
+  }
+  const svgString = renderSVG(currentDiagram);
+  downloadText("diagram.svg", svgString, "image/svg+xml");
+  setStatus("SVG downloaded.");
+});
+
+btnDownloadPng.addEventListener("click", () => {
+  clearMessages();
+  if (!currentDiagram) {
+    setError("No diagram to download yet.");
+    return;
+  }
+  const svgString = renderSVG(currentDiagram);
+  downloadPNGFromSVG(svgString, "diagram.png");
+  setStatus("PNG downloaded.");
+});
