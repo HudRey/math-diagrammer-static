@@ -55,7 +55,7 @@ const DIAGRAM_SCHEMA = {
             rx: { type: "number" },
             ry: { type: "number" },
           },
-          // rx/ry optional (server will default them to 0)
+          // NOTE: rx/ry are REQUIRED by schema. Keep them required so the model always outputs them.
           required: ["x", "y", "w", "h", "stroke", "strokeWidth", "fill", "rx", "ry"],
         },
       },
@@ -202,12 +202,6 @@ Non-negotiable rules:
 - Use the defaults for any missing style properties in shapes/labels.
 - Follow the schema EXACTLY. Do NOT add extra properties.
 
-Internal steps (do not output these steps):
-1) Identify the primary diagram type (rectangle, polygon, segment diagram, coordinate plot, etc.).
-2) Choose minimal shapes to represent it clearly.
-3) Place labels near relevant sides/points.
-4) Emit JSON matching schema.
-
 Few-shot examples (learn the pattern and apply it):
 
 EXAMPLE 1:
@@ -248,6 +242,63 @@ function arr<T>(v: any): T[] {
   return Array.isArray(v) ? (v as T[]) : [];
 }
 
+// More forgiving: supports A(-2,3), A = (-2, 3), A: (-2,3)
+function parsePointPairsFromText(text: string): Array<{ name: string; x: number; y: number }> {
+  const re = /([A-Z])\s*(?:=|:)?\s*\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\)/g;
+  const out: Array<{ name: string; x: number; y: number }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    out.push({ name: m[1], x: Number(m[2]), y: Number(m[3]) });
+  }
+  return out;
+}
+
+function mapToCanvas(points: Array<{ x: number; y: number }>, w: number, h: number, margin: number) {
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+
+  let minX = Math.min(...xs);
+  let maxX = Math.max(...xs);
+  let minY = Math.min(...ys);
+  let maxY = Math.max(...ys);
+
+  // Avoid zero ranges
+  if (minX === maxX) {
+    minX -= 1;
+    maxX += 1;
+  }
+  if (minY === maxY) {
+    minY -= 1;
+    maxY += 1;
+  }
+
+  const pxMinX = margin;
+  const pxMaxX = w - margin;
+  const pxMinY = margin;
+  const pxMaxY = h - margin;
+
+  const scaleX = (pxMaxX - pxMinX) / (maxX - minX);
+  const scaleY = (pxMaxY - pxMinY) / (maxY - minY);
+
+  // Use the smaller scale to preserve aspect
+  const scale = Math.min(scaleX, scaleY);
+
+  // Center the mapped points
+  const midX = (minX + maxX) / 2;
+  const midY = (minY + maxY) / 2;
+  const pxMidX = w / 2;
+  const pxMidY = h / 2;
+
+  // IMPORTANT: invert Y so positive math-y goes UP visually
+  const toPx = (x: number, y: number) => {
+    const px = pxMidX + (x - midX) * scale;
+    const py = pxMidY - (y - midY) * scale;
+    return [px, py] as [number, number];
+  };
+
+  return { toPx };
+}
+
 function toPair(v: any, fallback: [number, number]): [number, number] {
   if (!Array.isArray(v) || v.length !== 2) return fallback;
   const x = Number(v[0]);
@@ -261,7 +312,7 @@ function normalizeAndClamp(diagram: any) {
     throw new Error("Model returned non-object diagram.");
   }
 
-  // Force deterministic canvas for MVP
+  // Force deterministic canvas
   diagram.canvas = diagram.canvas ?? {};
   diagram.canvas.width = CANVAS_W;
   diagram.canvas.height = CANVAS_H;
@@ -281,12 +332,11 @@ function normalizeAndClamp(diagram: any) {
   const xHi = CANVAS_W - MARGIN;
   const yHi = CANVAS_H - MARGIN;
 
-  // Rects: clamp size and position to remain inside margins
+  // Rects: clamp size and position
   diagram.rects = arr<any>(diagram.rects).map((r) => {
     let w = Math.max(0, num(r.w, 0));
     let h = Math.max(0, num(r.h, 0));
 
-    // Clamp size so it can fit inside margins at all
     w = Math.min(w, xHi - xLo);
     h = Math.min(h, yHi - yLo);
 
@@ -301,87 +351,110 @@ function normalizeAndClamp(diagram: any) {
       h,
       rx: num(r.rx, 0),
       ry: num(r.ry, 0),
+      stroke: str(r.stroke, "#000000"),
+      strokeWidth: num(r.strokeWidth, 3),
+      fill: str(r.fill, "none"),
     };
   });
 
-  // Circles: clamp center so circle stays inside
+  // Circles: clamp center
   diagram.circles = arr<any>(diagram.circles).map((c) => {
     const r = Math.max(0, num(c.r, 0));
     const cx = clamp(num(c.cx, 0), xLo + r, xHi - r);
     const cy = clamp(num(c.cy, 0), yLo + r, yHi - r);
-    return { ...c, cx, cy, r };
+    return {
+      ...c,
+      cx,
+      cy,
+      r,
+      stroke: str(c.stroke, "#000000"),
+      strokeWidth: num(c.strokeWidth, 3),
+      fill: str(c.fill, "none"),
+    };
   });
 
-  // Ellipses: clamp center so ellipse stays inside
+  // Ellipses: clamp center
   diagram.ellipses = arr<any>(diagram.ellipses).map((e) => {
     const rx = Math.max(0, num(e.rx, 0));
     const ry = Math.max(0, num(e.ry, 0));
     const cx = clamp(num(e.cx, 0), xLo + rx, xHi - rx);
     const cy = clamp(num(e.cy, 0), yLo + ry, yHi - ry);
-    return { ...e, cx, cy, rx, ry };
+    return {
+      ...e,
+      cx,
+      cy,
+      rx,
+      ry,
+      stroke: str(e.stroke, "#000000"),
+      strokeWidth: num(e.strokeWidth, 3),
+      fill: str(e.fill, "none"),
+    };
   });
 
-  // Segments: clamp endpoints
- diagram.segments = arr<any>(diagram.segments)
-  .map((seg) => {
-    const a = toPair(seg?.a, [450, 225]);
-    const b = toPair(seg?.b, [650, 275]);
-    const ax = clamp(a[0], xLo, xHi);
-    const ay = clamp(a[1], yLo, yHi);
-    const bx = clamp(b[0], xLo, xHi);
-    const by = clamp(b[1], yLo, yHi);
-    return {
-      ...seg,
-      a: [ax, ay],
-      b: [bx, by],
-      stroke: str(seg?.stroke, "#000000"),
-      strokeWidth: num(seg?.strokeWidth, 3),
-    };
-  })
-  // remove zero-length lines (invisible)
-  .filter((seg) => seg.a[0] !== seg.b[0] || seg.a[1] !== seg.b[1]);
+  // Segments: clamp endpoints + default stroke/strokeWidth
+  diagram.segments = arr<any>(diagram.segments)
+    .map((seg) => {
+      const a = toPair(seg?.a, [450, 225]);
+      const b = toPair(seg?.b, [650, 275]);
+      const ax = clamp(a[0], xLo, xHi);
+      const ay = clamp(a[1], yLo, yHi);
+      const bx = clamp(b[0], xLo, xHi);
+      const by = clamp(b[1], yLo, yHi);
+      return {
+        ...seg,
+        a: [ax, ay],
+        b: [bx, by],
+        stroke: str(seg?.stroke, "#000000"),
+        strokeWidth: num(seg?.strokeWidth, 3),
+      };
+    })
+    .filter((seg) => seg.a[0] !== seg.b[0] || seg.a[1] !== seg.b[1]);
 
-  // Polygons: clamp each point
+  // Polygons: clamp each point + default styles
   diagram.polygons = arr<any>(diagram.polygons).map((p) => {
     const points = arr<any>(p.points).map((pt) => {
       const px = clamp(num(pt?.[0], 0), xLo, xHi);
       const py = clamp(num(pt?.[1], 0), yLo, yHi);
       return [px, py];
     });
-    return { ...p, points };
+    return {
+      ...p,
+      points,
+      stroke: str(p.stroke, "#000000"),
+      strokeWidth: num(p.strokeWidth, 3),
+      fill: str(p.fill, "none"),
+    };
   });
 
-  // Points: clamp each location
-diagram.points = arr<any>(diagram.points).map((p) => {
-  const at = toPair(p?.at, [450, 225]);
-  const px = clamp(at[0], xLo, xHi);
-  const py = clamp(at[1], yLo, yHi);
-  return {
-    ...p,
-    at: [px, py],
-    r: Math.max(1, num(p?.r, 5)),
-    fill: str(p?.fill, "#000000"),
-    stroke: str(p?.stroke, "none"),
-    strokeWidth: num(p?.strokeWidth, 1),
-  };
-});
+  // Points: clamp each location + default styles
+  diagram.points = arr<any>(diagram.points).map((p) => {
+    const at = toPair(p?.at, [450, 225]);
+    const px = clamp(at[0], xLo, xHi);
+    const py = clamp(at[1], yLo, yHi);
+    return {
+      ...p,
+      at: [px, py],
+      r: Math.max(1, num(p?.r, 5)),
+      fill: str(p?.fill, "#000000"),
+      stroke: str(p?.stroke, "none"),
+      strokeWidth: num(p?.strokeWidth, 1),
+    };
+  });
 
-
-  // Labels: clamp x/y
-diagram.labels = arr<any>(diagram.labels).map((l) => {
-  const x = clamp(num(l?.x, 0), xLo, xHi);
-  const y = clamp(num(l?.y, 0), yLo, yHi);
-  return {
-    ...l,
-    text: str(l?.text, "?"),
-    x,
-    y,
-    color: str(l?.color, "#000000"),
-    fontSize: Math.max(10, num(l?.fontSize, 18)),
-    bold: !!l?.bold,
-  };
-});
-
+  // Labels: clamp x/y + defaults
+  diagram.labels = arr<any>(diagram.labels).map((l) => {
+    const x = clamp(num(l?.x, 0), xLo, xHi);
+    const y = clamp(num(l?.y, 0), yLo, yHi);
+    return {
+      ...l,
+      text: str(l?.text, "?"),
+      x,
+      y,
+      color: str(l?.color, "#000000"),
+      fontSize: Math.max(10, num(l?.fontSize, 18)),
+      bold: !!l?.bold,
+    };
+  });
 
   // Ensure arrays exist (defensive)
   diagram.rects ??= [];
@@ -392,45 +465,42 @@ diagram.labels = arr<any>(diagram.labels).map((l) => {
   diagram.points ??= [];
   diagram.labels ??= [];
 
-// --- Improve vertex label placement: push single-letter labels away from polygon centroid ---
-function dist2(ax: number, ay: number, bx: number, by: number) {
-  const dx = ax - bx;
-  const dy = ay - by;
-  return dx * dx + dy * dy;
-}
+  // --- Improve vertex label placement: push single-letter labels away from polygon centroid ---
+  function dist2(ax: number, ay: number, bx: number, by: number) {
+    const dx = ax - bx;
+    const dy = ay - by;
+    return dx * dx + dy * dy;
+  }
 
-const VERTEX_SNAP_R2 = 18 * 18; // how close label must be to a vertex to count as "on it"
-const LABEL_PUSH = 16; // pixels to push outward
+  const VERTEX_SNAP_R2 = 18 * 18;
+  const LABEL_PUSH = 16;
 
-for (const poly of diagram.polygons ?? []) {
-  const pts = arr<any>(poly.points).map((p) => toPair(p, [0, 0]));
-  if (pts.length < 3) continue;
+  for (const poly of diagram.polygons ?? []) {
+    const pts = arr<any>(poly.points).map((p) => toPair(p, [0, 0]));
+    if (pts.length < 3) continue;
 
-  // centroid (simple average)
-  const cx = pts.reduce((sum, p) => sum + p[0], 0) / pts.length;
-  const cy = pts.reduce((sum, p) => sum + p[1], 0) / pts.length;
+    const cx = pts.reduce((sum, p) => sum + p[0], 0) / pts.length;
+    const cy = pts.reduce((sum, p) => sum + p[1], 0) / pts.length;
 
-  for (const lab of diagram.labels ?? []) {
-    const t = str(lab?.text, "");
-    if (!/^[A-Z]$/.test(t)) continue;
+    for (const lab of diagram.labels ?? []) {
+      const t = str(lab?.text, "");
+      if (!/^[A-Z]$/.test(t)) continue;
 
-    // if label is very close to any vertex, push it outward away from centroid
-    for (const [vx, vy] of pts) {
-      if (dist2(lab.x, lab.y, vx, vy) <= VERTEX_SNAP_R2) {
-        const dx = vx - cx;
-        const dy = vy - cy;
-        const len = Math.hypot(dx, dy) || 1;
-        const ux = dx / len;
-        const uy = dy / len;
+      for (const [vx, vy] of pts) {
+        if (dist2(lab.x, lab.y, vx, vy) <= VERTEX_SNAP_R2) {
+          const dx = vx - cx;
+          const dy = vy - cy;
+          const len = Math.hypot(dx, dy) || 1;
+          const ux = dx / len;
+          const uy = dy / len;
 
-        lab.x = clamp(vx + ux * LABEL_PUSH, xLo, xHi);
-        lab.y = clamp(vy + uy * LABEL_PUSH, yLo, yHi);
-        break;
+          lab.x = clamp(vx + ux * LABEL_PUSH, xLo, xHi);
+          lab.y = clamp(vy + uy * LABEL_PUSH, yLo, yHi);
+          break;
+        }
       }
     }
   }
-}
-
 
   return diagram;
 }
@@ -448,7 +518,8 @@ export default async function handler(req: any, res: any) {
       res.status(400).json({ error: "Missing description" });
       return;
     }
-const wantsPlot = /plot points?|connect (them|points|a and b)|segment\s+[a-z]{1,3}/i.test(description);
+
+    const wantsPlot = /plot points?|connect (them|points|a and b)|segment\s+[a-z]{1,3}/i.test(description);
 
     const resp = await client.responses.create({
       model: "gpt-4o-mini",
@@ -487,27 +558,96 @@ const wantsPlot = /plot points?|connect (them|points|a and b)|segment\s+[a-z]{1,
     }
 
     const safeDiagram = normalizeAndClamp(diagram);
-if (wantsPlot) {
-  // Ensure at least 2 points and 1 segment exist
-  if (!safeDiagram.points || safeDiagram.points.length < 2) {
-    safeDiagram.points = [
-      { at: [380, 170], r: 5, fill: "#000000", stroke: "none", strokeWidth: 1 },
-      { at: [620, 290], r: 5, fill: "#000000", stroke: "none", strokeWidth: 1 },
-    ];
-  }
-  if (!safeDiagram.segments || safeDiagram.segments.length < 1) {
-    safeDiagram.segments = [
-      { a: safeDiagram.points[0].at, b: safeDiagram.points[1].at, stroke: "#000000", strokeWidth: 3 },
-    ];
-  }
-  // Ensure labels exist
-  if (!safeDiagram.labels || safeDiagram.labels.length < 2) {
-    safeDiagram.labels = [
-      { text: "A", x: safeDiagram.points[0].at[0] - 25, y: safeDiagram.points[0].at[1] - 15, color: "#000000", fontSize: 18, bold: true },
-      { text: "B", x: safeDiagram.points[1].at[0] + 25, y: safeDiagram.points[1].at[1] + 15, color: "#000000", fontSize: 18, bold: true },
-    ];
-  }
-}
+
+    // --- Coordinate mapping override (deterministic) ---
+    const parsed = parsePointPairsFromText(description);
+
+    if (parsed.length >= 2) {
+      const mapper = mapToCanvas(parsed, CANVAS_W, CANVAS_H, MARGIN);
+
+      const xLo = MARGIN;
+      const yLo = MARGIN;
+      const xHi = CANVAS_W - MARGIN;
+      const yHi = CANVAS_H - MARGIN;
+
+      safeDiagram.points = parsed.map((p) => {
+        const [pxRaw, pyRaw] = mapper.toPx(p.x, p.y);
+        const px = clamp(pxRaw, xLo, xHi);
+        const py = clamp(pyRaw, yLo, yHi);
+        return { at: [px, py], r: 5, fill: "#000000", stroke: "none", strokeWidth: 1 };
+      });
+
+      const connect = /connect|segment|draw.*segment/i.test(description);
+      safeDiagram.segments = connect
+        ? [
+            {
+              a: safeDiagram.points[0].at,
+              b: safeDiagram.points[1].at,
+              stroke: "#000000",
+              strokeWidth: 3,
+            },
+          ]
+        : [];
+
+      safeDiagram.labels = parsed.map((p, i) => {
+        const at = safeDiagram.points[i].at;
+        const lx = clamp(at[0] + 18, xLo, xHi);
+        const ly = clamp(at[1] - 18, yLo, yHi);
+        return {
+          text: `${p.name}(${p.x}, ${p.y})`,
+          x: lx,
+          y: ly,
+          color: "#000000",
+          fontSize: 18,
+          bold: false,
+        };
+      });
+
+      // Keep arrays present
+      safeDiagram.rects ??= [];
+      safeDiagram.circles ??= [];
+      safeDiagram.ellipses ??= [];
+      safeDiagram.polygons ??= [];
+    } else if (wantsPlot) {
+      // Fallback: wants plot but no coordinates parsed
+      safeDiagram.points ??= [];
+      safeDiagram.segments ??= [];
+      safeDiagram.labels ??= [];
+
+      if (safeDiagram.points.length < 2) {
+        safeDiagram.points = [
+          { at: [380, 170], r: 5, fill: "#000000", stroke: "none", strokeWidth: 1 },
+          { at: [620, 290], r: 5, fill: "#000000", stroke: "none", strokeWidth: 1 },
+        ];
+      }
+
+      if (safeDiagram.segments.length < 1) {
+        safeDiagram.segments = [
+          { a: safeDiagram.points[0].at, b: safeDiagram.points[1].at, stroke: "#000000", strokeWidth: 3 },
+        ];
+      }
+
+      if (safeDiagram.labels.length < 2) {
+        safeDiagram.labels = [
+          {
+            text: "A",
+            x: safeDiagram.points[0].at[0] - 25,
+            y: safeDiagram.points[0].at[1] - 15,
+            color: "#000000",
+            fontSize: 18,
+            bold: true,
+          },
+          {
+            text: "B",
+            x: safeDiagram.points[1].at[0] + 25,
+            y: safeDiagram.points[1].at[1] + 15,
+            color: "#000000",
+            fontSize: 18,
+            bold: true,
+          },
+        ];
+      }
+    }
 
     res.status(200).json({ diagram: safeDiagram, usage: resp.usage ?? null });
   } catch (e: any) {

@@ -157,8 +157,6 @@ export function validateSpec(obj: any): DiagramSpec {
 
 export function renderDiagramSVG(spec: DiagramSpec) {
   // spec is assumed to be validated/normalized at the boundary
-
-
   const W = n(spec.canvas.width, 900);
   const H = n(spec.canvas.height, 450);
   const bg = s(spec.canvas.bg, "#ffffff");
@@ -171,78 +169,92 @@ export function renderDiagramSVG(spec: DiagramSpec) {
   const baseFontSize = n(spec.defaults?.fontSize, 18);
   const labelColor = s(spec.defaults?.labelColor, "#000000");
 
+  // Helper: wrap a single shape in a draggable <g>
+  const wrap = (entity: string, index: number, inner: string) => {
+    return `<g data-entity="${entity}" data-index="${index}" style="cursor: grab; touch-action: none;">${inner}</g>`;
+  };
+
   const rects = (spec.rects ?? [])
-    .map((r) => {
+    .map((r, i) => {
       const stroke = s(r.stroke, defStroke);
       const sw = n(r.strokeWidth, defStrokeWidth);
       const fill = s(r.fill, defFill);
-
-      // rx/ry default to 0 if missing (and always included to avoid schema fights)
       const rx = n(r.rx, 0);
       const ry = n(r.ry, 0);
 
-      return `<rect x="${n(r.x, 0)}" y="${n(r.y, 0)}" width="${n(r.w, 0)}" height="${n(
+      const inner = `<rect x="${n(r.x, 0)}" y="${n(r.y, 0)}" width="${n(r.w, 0)}" height="${n(
         r.h,
         0
       )}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" rx="${rx}" ry="${ry}" />`;
+      return wrap("rect", i, inner);
     })
     .join("\n");
 
   const circles = (spec.circles ?? [])
-    .map((c) => {
+    .map((c, i) => {
       const stroke = s(c.stroke, defStroke);
       const sw = n(c.strokeWidth, defStrokeWidth);
       const fill = s(c.fill, defFill);
-      return `<circle cx="${n(c.cx, 0)}" cy="${n(c.cy, 0)}" r="${n(
+
+      const inner = `<circle cx="${n(c.cx, 0)}" cy="${n(c.cy, 0)}" r="${n(
         c.r,
         0
       )}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" />`;
+      return wrap("circle", i, inner);
     })
     .join("\n");
 
   const ellipses = (spec.ellipses ?? [])
-    .map((e) => {
+    .map((e, i) => {
       const stroke = s(e.stroke, defStroke);
       const sw = n(e.strokeWidth, defStrokeWidth);
       const fill = s(e.fill, defFill);
-      return `<ellipse cx="${n(e.cx, 0)}" cy="${n(e.cy, 0)}" rx="${n(
+
+      const inner = `<ellipse cx="${n(e.cx, 0)}" cy="${n(e.cy, 0)}" rx="${n(
         e.rx,
         0
       )}" ry="${n(e.ry, 0)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" />`;
+      return wrap("ellipse", i, inner);
     })
     .join("\n");
 
   const polys = (spec.polygons ?? [])
-    .map((p) => {
+    .map((p, i) => {
       const pts = (p.points ?? []).map(([x, y]) => `${n(x, 0)},${n(y, 0)}`).join(" ");
       const stroke = s(p.stroke, defStroke);
       const sw = n(p.strokeWidth, defStrokeWidth);
       const fill = s(p.fill, defFill);
-      return `<polygon points="${pts}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" />`;
+
+      const inner = `<polygon points="${pts}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" />`;
+      return wrap("polygon", i, inner);
     })
     .join("\n");
 
   const segs = (spec.segments ?? [])
-    .map((seg) => {
+    .map((seg, i) => {
       const [x1, y1] = seg.a ?? [0, 0];
       const [x2, y2] = seg.b ?? [0, 0];
       const stroke = s(seg.stroke, defStroke);
       const sw = n(seg.strokeWidth, defStrokeWidth);
-      return `<line x1="${n(x1, 0)}" y1="${n(y1, 0)}" x2="${n(x2, 0)}" y2="${n(
+
+      const inner = `<line x1="${n(x1, 0)}" y1="${n(y1, 0)}" x2="${n(x2, 0)}" y2="${n(
         y2,
         0
       )}" stroke="${stroke}" stroke-width="${sw}" />`;
+      return wrap("segment", i, inner);
     })
     .join("\n");
 
   const pts = (spec.points ?? [])
-    .map((p) => {
+    .map((p, i) => {
       const [x, y] = p.at ?? [0, 0];
       const r = n(p.r, 4);
       const fill = s(p.fill, "#000000");
       const stroke = s(p.stroke, "none");
       const sw = n(p.strokeWidth, 1);
-      return `<circle cx="${n(x, 0)}" cy="${n(y, 0)}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" />`;
+
+      const inner = `<circle cx="${n(x, 0)}" cy="${n(y, 0)}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" />`;
+      return wrap("point", i, inner);
     })
     .join("\n");
 
@@ -253,10 +265,9 @@ export function renderDiagramSVG(spec: DiagramSpec) {
       const fs = n(l.fontSize, baseFontSize);
       const color = s(l.color, labelColor);
 
-      // Keep <text> in ONE LINE to avoid weird whitespace nodes
       return `<text data-label-index="${i}" x="${n(l.x, 0)}" y="${n(l.y, 0)}" fill="${color}" font-size="${fs}" font-family="${esc(
         fontFamily
-      )}" font-weight="${weight}" dominant-baseline="middle" text-anchor="middle" style="cursor: move;">${esc(
+      )}" font-weight="${weight}" dominant-baseline="middle" text-anchor="middle" style="cursor: move; touch-action: none;">${esc(
         l.text
       )}</text>`;
     })
@@ -273,3 +284,4 @@ export function renderDiagramSVG(spec: DiagramSpec) {
   ${labels}
 </svg>`.trim();
 }
+

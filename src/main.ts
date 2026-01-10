@@ -242,14 +242,11 @@ function hookDragHandlers() {
   const svgOld = document.getElementById("diagramSvg") as SVGSVGElement | null;
   if (!svgOld || !currentDiagram) return;
 
-  // Reset handlers by cloning
+  // Clear previous handlers by cloning node (cheap and effective)
   const svg = svgOld.cloneNode(true) as SVGSVGElement;
   svgOld.replaceWith(svg);
 
-  let draggingIdx: number | null = null;
-  let offsetX = 0;
-  let offsetY = 0;
-
+  // ---- coordinate helper ----
   const svgPoint = (clientX: number, clientY: number) => {
     const pt = svg.createSVGPoint();
     pt.x = clientX;
@@ -261,56 +258,155 @@ function hookDragHandlers() {
     return { x: p.x, y: p.y };
   };
 
-  const onPointerDown = (ev: PointerEvent) => {
-    const target = ev.target as Element | null;
-    if (!target) return;
+  type DragMode =
+    | { kind: "label"; idx: number; offsetX: number; offsetY: number }
+    | { kind: "entity"; entity: string; idx: number; startX: number; startY: number; dx: number; dy: number; g: SVGGElement };
 
-    const idxStr = target.getAttribute("data-label-index");
-    if (!idxStr) return;
+  let drag: DragMode | null = null;
 
-    const idx = Number(idxStr);
-    if (!Number.isFinite(idx)) return;
+  const applyDeltaToSpec = (entity: string, idx: number, dx: number, dy: number) => {
+    if (!currentDiagram) return;
 
-    const labels = currentDiagram?.labels ?? [];
-    if (!labels[idx]) return;
+    const round = (v: number) => Math.round(v * 100) / 100;
 
-    draggingIdx = idx;
-    svg.setPointerCapture(ev.pointerId);
+    if (entity === "rect") {
+      const r = currentDiagram.rects?.[idx];
+      if (!r) return;
+      r.x = round(r.x + dx);
+      r.y = round(r.y + dy);
+      return;
+    }
 
-    const p = svgPoint(ev.clientX, ev.clientY);
-    offsetX = p.x - labels[idx].x;
-    offsetY = p.y - labels[idx].y;
-  };
+    if (entity === "circle") {
+      const c = currentDiagram.circles?.[idx];
+      if (!c) return;
+      c.cx = round(c.cx + dx);
+      c.cy = round(c.cy + dy);
+      return;
+    }
 
-  const onPointerMove = (ev: PointerEvent) => {
-    if (draggingIdx === null || !currentDiagram) return;
+    if (entity === "ellipse") {
+      const e = currentDiagram.ellipses?.[idx];
+      if (!e) return;
+      e.cx = round(e.cx + dx);
+      e.cy = round(e.cy + dy);
+      return;
+    }
 
-    const labels = currentDiagram.labels ?? [];
-    const label = labels[draggingIdx];
-    if (!label) return;
+    if (entity === "polygon") {
+      const p = currentDiagram.polygons?.[idx];
+      if (!p) return;
+      p.points = (p.points ?? []).map(([x, y]) => [round(x + dx), round(y + dy)]);
+      return;
+    }
 
-    const p = svgPoint(ev.clientX, ev.clientY);
-    const newX = p.x - offsetX;
-    const newY = p.y - offsetY;
+    if (entity === "segment") {
+      const s = currentDiagram.segments?.[idx];
+      if (!s) return;
+      s.a = [round(s.a[0] + dx), round(s.a[1] + dy)];
+      s.b = [round(s.b[0] + dx), round(s.b[1] + dy)];
+      return;
+    }
 
-    label.x = Math.round(newX * 100) / 100;
-    label.y = Math.round(newY * 100) / 100;
-
-    const textEl = svg.querySelector(`[data-label-index="${draggingIdx}"]`) as SVGTextElement | null;
-    if (textEl) {
-      textEl.setAttribute("x", String(label.x));
-      textEl.setAttribute("y", String(label.y));
+    if (entity === "point") {
+      const p = currentDiagram.points?.[idx];
+      if (!p) return;
+      p.at = [round(p.at[0] + dx), round(p.at[1] + dy)];
+      return;
     }
   };
 
+  const onPointerDown = (ev: PointerEvent) => {
+    const target = ev.target as Element | null;
+    if (!target || !currentDiagram) return;
+
+    // --- LABEL drag ---
+    const idxStr = target.getAttribute("data-label-index");
+    if (idxStr) {
+      const idx = Number(idxStr);
+      if (!Number.isFinite(idx)) return;
+      const labels = currentDiagram.labels ?? [];
+      if (!labels[idx]) return;
+
+      svg.setPointerCapture(ev.pointerId);
+      const p = svgPoint(ev.clientX, ev.clientY);
+
+      drag = {
+        kind: "label",
+        idx,
+        offsetX: p.x - labels[idx].x,
+        offsetY: p.y - labels[idx].y,
+      };
+      return;
+    }
+
+    // --- SHAPE drag (look for nearest <g data-entity ...>) ---
+    const g = target.closest("[data-entity][data-index]") as SVGGElement | null;
+    if (!g) return;
+
+    const entity = g.getAttribute("data-entity") ?? "";
+    const idx = Number(g.getAttribute("data-index"));
+    if (!entity || !Number.isFinite(idx)) return;
+
+    svg.setPointerCapture(ev.pointerId);
+    const p0 = svgPoint(ev.clientX, ev.clientY);
+
+    drag = { kind: "entity", entity, idx, startX: p0.x, startY: p0.y, dx: 0, dy: 0, g };
+  };
+
+  const onPointerMove = (ev: PointerEvent) => {
+    if (!drag || !currentDiagram) return;
+
+    const p = svgPoint(ev.clientX, ev.clientY);
+
+    // --- LABEL move (live update text attrs, no rerender) ---
+    if (drag.kind === "label") {
+      const labels = currentDiagram.labels ?? [];
+      const label = labels[drag.idx];
+      if (!label) return;
+
+      const newX = p.x - drag.offsetX;
+      const newY = p.y - drag.offsetY;
+
+      label.x = Math.round(newX * 100) / 100;
+      label.y = Math.round(newY * 100) / 100;
+
+      const textEl = svg.querySelector(`[data-label-index="${drag.idx}"]`) as SVGTextElement | null;
+      if (textEl) {
+        textEl.setAttribute("x", String(label.x));
+        textEl.setAttribute("y", String(label.y));
+      }
+      return;
+    }
+
+    // --- SHAPE move (apply temporary translate on the <g>) ---
+    const dx = p.x - drag.startX;
+    const dy = p.y - drag.startY;
+    drag.dx = dx;
+    drag.dy = dy;
+
+    drag.g.setAttribute("transform", `translate(${dx}, ${dy})`);
+  };
+
   const onPointerUp = (ev: PointerEvent) => {
-    if (draggingIdx === null) return;
-    draggingIdx = null;
+    if (!drag) return;
+
     try {
       svg.releasePointerCapture(ev.pointerId);
     } catch {
       // ignore
     }
+
+    // Bake shape delta into spec, then rerender so transform resets cleanly
+    if (drag.kind === "entity" && currentDiagram) {
+      const { entity, idx, dx, dy } = drag;
+      // Clear temp transform immediately so there isn't a flash on rerender
+      drag.g.removeAttribute("transform");
+      applyDeltaToSpec(entity, idx, dx, dy);
+      mountDiagram(currentDiagram); // re-validate + rerender
+    }
+
+    drag = null;
   };
 
   svg.addEventListener("pointerdown", onPointerDown);
@@ -319,6 +415,7 @@ function hookDragHandlers() {
   svg.addEventListener("pointercancel", onPointerUp);
   svg.addEventListener("pointerleave", onPointerUp);
 }
+
 
 // ---------- API ----------
 async function generateDiagram(description: string): Promise<DiagramSpec> {
@@ -409,4 +506,3 @@ btnDownloadPng.addEventListener("click", () => {
   downloadPNGFromSVG(svgString, "diagram.png");
   setStatus("PNG downloaded.");
 });
-// ---------- Initial setup ----------
