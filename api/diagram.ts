@@ -4,6 +4,9 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// IMPORTANT: In Structured Outputs with strict JSON schema,
+// if additionalProperties=false, OpenAI requires "required" to include
+// EVERY key listed in "properties" for that object.
 const DIAGRAM_SCHEMA = {
   name: "diagram_spec",
   strict: true,
@@ -34,6 +37,7 @@ const DIAGRAM_SCHEMA = {
         },
         required: ["stroke", "strokeWidth", "fill", "fontFamily", "fontSize", "labelColor"],
       },
+
       rects: {
         type: "array",
         items: {
@@ -50,9 +54,10 @@ const DIAGRAM_SCHEMA = {
             rx: { type: "number" },
             ry: { type: "number" },
           },
-          required: ["x", "y", "w", "h"],
+          required: ["x", "y", "w", "h", "stroke", "strokeWidth", "fill", "rx", "ry"],
         },
       },
+
       circles: {
         type: "array",
         items: {
@@ -66,9 +71,10 @@ const DIAGRAM_SCHEMA = {
             strokeWidth: { type: "number" },
             fill: { type: "string" },
           },
-          required: ["cx", "cy", "r"],
+          required: ["cx", "cy", "r", "stroke", "strokeWidth", "fill"],
         },
       },
+
       ellipses: {
         type: "array",
         items: {
@@ -83,9 +89,10 @@ const DIAGRAM_SCHEMA = {
             strokeWidth: { type: "number" },
             fill: { type: "string" },
           },
-          required: ["cx", "cy", "rx", "ry"],
+          required: ["cx", "cy", "rx", "ry", "stroke", "strokeWidth", "fill"],
         },
       },
+
       polygons: {
         type: "array",
         items: {
@@ -105,9 +112,10 @@ const DIAGRAM_SCHEMA = {
             strokeWidth: { type: "number" },
             fill: { type: "string" },
           },
-          required: ["points"],
+          required: ["points", "stroke", "strokeWidth", "fill"],
         },
       },
+
       segments: {
         type: "array",
         items: {
@@ -119,9 +127,10 @@ const DIAGRAM_SCHEMA = {
             stroke: { type: "string" },
             strokeWidth: { type: "number" },
           },
-          required: ["a", "b"],
+          required: ["a", "b", "stroke", "strokeWidth"],
         },
       },
+
       points: {
         type: "array",
         items: {
@@ -134,9 +143,10 @@ const DIAGRAM_SCHEMA = {
             stroke: { type: "string" },
             strokeWidth: { type: "number" },
           },
-          required: ["at"],
+          required: ["at", "r", "fill", "stroke", "strokeWidth"],
         },
       },
+
       labels: {
         type: "array",
         items: {
@@ -150,10 +160,13 @@ const DIAGRAM_SCHEMA = {
             fontSize: { type: "number" },
             bold: { type: "boolean" },
           },
-          required: ["text", "x", "y"],
+          required: ["text", "x", "y", "color", "fontSize", "bold"],
         },
       },
     },
+
+    // Only require canvas + defaults globally.
+    // All other arrays are optional.
     required: ["canvas", "defaults"],
   },
 };
@@ -164,18 +177,17 @@ You output diagram JSON that matches the schema exactly.
 
 Hard rules:
 - canvas is 900x450 with bg "#ffffff"
-- defaults.stroke "#000000"
+- defaults.stroke "#000000" and defaults.labelColor "#000000"
 - keep shapes and labels at least 40px from edges
 - labels readable and near intended objects
 - do not invent side lengths unless the user asks
 - do not include extra keys
+- If you include rects/circles/ellipses/polygons/segments/points/labels, each item must include ALL fields required by the schema.
 `.trim();
 }
 
-// Vercel Node runtime (recommended for OpenAI)
-export const config = {
-  runtime: "nodejs",
-};
+// Vercel Node runtime
+export const config = { runtime: "nodejs" };
 
 export default async function handler(req: any, res: any) {
   try {
@@ -207,19 +219,14 @@ export default async function handler(req: any, res: any) {
       max_output_tokens: 1200,
     });
 
-    // ✅ Use the SDK convenience property
-    const jsonText = resp.output_text; // docs recommend this :contentReference[oaicite:1]{index=1}
+    const jsonText = resp.output_text;
     if (!jsonText || typeof jsonText !== "string") {
       res.status(500).json({ error: "Empty output_text from model." });
       return;
     }
 
     const diagram = JSON.parse(jsonText);
-
-    res.status(200).json({
-      diagram,
-      usage: resp.usage ?? null,
-    });
+    res.status(200).json({ diagram, usage: resp.usage ?? null });
   } catch (e: any) {
     res.status(500).json({ error: e?.message ?? String(e) });
   }
