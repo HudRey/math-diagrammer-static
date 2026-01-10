@@ -56,7 +56,7 @@ const DIAGRAM_SCHEMA = {
             ry: { type: "number" },
           },
           // rx/ry optional (server will default them to 0)
-          required: ["x", "y", "w", "h", "stroke", "strokeWidth", "fill"],
+          required: ["x", "y", "w", "h", "stroke", "strokeWidth", "fill", "rx", "ry"],
         },
       },
 
@@ -189,6 +189,18 @@ Non-negotiable rules:
   - If the user says "x" or "unknown", show that exact text in a label.
   - If no numbers are given, use generic labels (like "x", "y", "?" or names like "A", "B") rather than making up measurements.
 - Prefer rectangles/segments/labels for Pre-Algebra diagrams unless the user explicitly asks for something else.
+- If the user asks to plot points or connect points:
+  - You MUST output:
+    - points: at least two point markers in "points"
+    - segments: at least one connecting segment in "segments"
+    - labels: point labels near the markers
+  - Do NOT draw axes unless explicitly requested.
+  - Place the two points near the center with clear separation (roughly 200–350px apart).
+- For triangles or polygons, label vertices with capital letters (A, B, C, ...).
+- For rectangles, label sides with measurements (like "7 cm") and place labels near the sides.
+- For rects, ALWAYS include rx and ry (use 0 if not rounded).
+- Use the defaults for any missing style properties in shapes/labels.
+- Follow the schema EXACTLY. Do NOT add extra properties.
 
 Internal steps (do not output these steps):
 1) Identify the primary diagram type (rectangle, polygon, segment diagram, coordinate plot, etc.).
@@ -234,6 +246,14 @@ function clamp(v: number, lo: number, hi: number) {
 }
 function arr<T>(v: any): T[] {
   return Array.isArray(v) ? (v as T[]) : [];
+}
+
+function toPair(v: any, fallback: [number, number]): [number, number] {
+  if (!Array.isArray(v) || v.length !== 2) return fallback;
+  const x = Number(v[0]);
+  const y = Number(v[1]);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return fallback;
+  return [x, y];
 }
 
 function normalizeAndClamp(diagram: any) {
@@ -302,13 +322,24 @@ function normalizeAndClamp(diagram: any) {
   });
 
   // Segments: clamp endpoints
-  diagram.segments = arr<any>(diagram.segments).map((seg) => {
-    const ax = clamp(num(seg?.a?.[0], 0), xLo, xHi);
-    const ay = clamp(num(seg?.a?.[1], 0), yLo, yHi);
-    const bx = clamp(num(seg?.b?.[0], 0), xLo, xHi);
-    const by = clamp(num(seg?.b?.[1], 0), yLo, yHi);
-    return { ...seg, a: [ax, ay], b: [bx, by] };
-  });
+ diagram.segments = arr<any>(diagram.segments)
+  .map((seg) => {
+    const a = toPair(seg?.a, [450, 225]);
+    const b = toPair(seg?.b, [650, 275]);
+    const ax = clamp(a[0], xLo, xHi);
+    const ay = clamp(a[1], yLo, yHi);
+    const bx = clamp(b[0], xLo, xHi);
+    const by = clamp(b[1], yLo, yHi);
+    return {
+      ...seg,
+      a: [ax, ay],
+      b: [bx, by],
+      stroke: str(seg?.stroke, "#000000"),
+      strokeWidth: num(seg?.strokeWidth, 3),
+    };
+  })
+  // remove zero-length lines (invisible)
+  .filter((seg) => seg.a[0] !== seg.b[0] || seg.a[1] !== seg.b[1]);
 
   // Polygons: clamp each point
   diagram.polygons = arr<any>(diagram.polygons).map((p) => {
@@ -321,26 +352,36 @@ function normalizeAndClamp(diagram: any) {
   });
 
   // Points: clamp each location
-  diagram.points = arr<any>(diagram.points).map((p) => {
-    const px = clamp(num(p?.at?.[0], 0), xLo, xHi);
-    const py = clamp(num(p?.at?.[1], 0), yLo, yHi);
-    return { ...p, at: [px, py] };
-  });
+diagram.points = arr<any>(diagram.points).map((p) => {
+  const at = toPair(p?.at, [450, 225]);
+  const px = clamp(at[0], xLo, xHi);
+  const py = clamp(at[1], yLo, yHi);
+  return {
+    ...p,
+    at: [px, py],
+    r: Math.max(1, num(p?.r, 5)),
+    fill: str(p?.fill, "#000000"),
+    stroke: str(p?.stroke, "none"),
+    strokeWidth: num(p?.strokeWidth, 1),
+  };
+});
+
 
   // Labels: clamp x/y
-  diagram.labels = arr<any>(diagram.labels).map((l) => {
-    const x = clamp(num(l.x, 0), xLo, xHi);
-    const y = clamp(num(l.y, 0), yLo, yHi);
-    return {
-      ...l,
-      text: str(l.text, ""),
-      x,
-      y,
-      color: str(l.color, "#000000"),
-      fontSize: num(l.fontSize, 18),
-      bold: !!l.bold,
-    };
-  });
+diagram.labels = arr<any>(diagram.labels).map((l) => {
+  const x = clamp(num(l?.x, 0), xLo, xHi);
+  const y = clamp(num(l?.y, 0), yLo, yHi);
+  return {
+    ...l,
+    text: str(l?.text, "?"),
+    x,
+    y,
+    color: str(l?.color, "#000000"),
+    fontSize: Math.max(10, num(l?.fontSize, 18)),
+    bold: !!l?.bold,
+  };
+});
+
 
   // Ensure arrays exist (defensive)
   diagram.rects ??= [];
@@ -367,6 +408,7 @@ export default async function handler(req: any, res: any) {
       res.status(400).json({ error: "Missing description" });
       return;
     }
+const wantsPlot = /plot points?|connect (them|points|a and b)|segment\s+[a-z]{1,3}/i.test(description);
 
     const resp = await client.responses.create({
       model: "gpt-4o-mini",
@@ -405,6 +447,27 @@ export default async function handler(req: any, res: any) {
     }
 
     const safeDiagram = normalizeAndClamp(diagram);
+if (wantsPlot) {
+  // Ensure at least 2 points and 1 segment exist
+  if (!safeDiagram.points || safeDiagram.points.length < 2) {
+    safeDiagram.points = [
+      { at: [380, 170], r: 5, fill: "#000000", stroke: "none", strokeWidth: 1 },
+      { at: [620, 290], r: 5, fill: "#000000", stroke: "none", strokeWidth: 1 },
+    ];
+  }
+  if (!safeDiagram.segments || safeDiagram.segments.length < 1) {
+    safeDiagram.segments = [
+      { a: safeDiagram.points[0].at, b: safeDiagram.points[1].at, stroke: "#000000", strokeWidth: 3 },
+    ];
+  }
+  // Ensure labels exist
+  if (!safeDiagram.labels || safeDiagram.labels.length < 2) {
+    safeDiagram.labels = [
+      { text: "A", x: safeDiagram.points[0].at[0] - 25, y: safeDiagram.points[0].at[1] - 15, color: "#000000", fontSize: 18, bold: true },
+      { text: "B", x: safeDiagram.points[1].at[0] + 25, y: safeDiagram.points[1].at[1] + 15, color: "#000000", fontSize: 18, bold: true },
+    ];
+  }
+}
 
     res.status(200).json({ diagram: safeDiagram, usage: resp.usage ?? null });
   } catch (e: any) {
