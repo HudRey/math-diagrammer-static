@@ -166,7 +166,7 @@ const DIAGRAM_SCHEMA = {
       },
     },
 
-    // ✅ REQUIRED must include every top-level key in properties
+    // REQUIRED must include every top-level key in properties
     required: [
       "canvas",
       "defaults",
@@ -199,6 +199,132 @@ Hard rules:
 
 export const config = { runtime: "nodejs" };
 
+// ----------------- server-side normalization -----------------
+const CANVAS_W = 900;
+const CANVAS_H = 450;
+const MARGIN = 40;
+
+function num(v: any, fallback: number) {
+  const x = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(x) ? x : fallback;
+}
+function str(v: any, fallback: string) {
+  return typeof v === "string" && v.trim() ? v : fallback;
+}
+function clamp(v: number, lo: number, hi: number) {
+  return Math.min(hi, Math.max(lo, v));
+}
+function arr<T>(v: any): T[] {
+  return Array.isArray(v) ? (v as T[]) : [];
+}
+
+function normalizeAndClamp(diagram: any) {
+  if (!diagram || typeof diagram !== "object") {
+    throw new Error("Model returned non-object diagram.");
+  }
+
+  // Force deterministic canvas for MVP
+  diagram.canvas = diagram.canvas ?? {};
+  diagram.canvas.width = CANVAS_W;
+  diagram.canvas.height = CANVAS_H;
+  diagram.canvas.bg = "#ffffff";
+
+  // Defaults: ensure sane baseline (model will already include due to schema, but keep safe)
+  diagram.defaults = diagram.defaults ?? {};
+  diagram.defaults.stroke = str(diagram.defaults.stroke, "#000000");
+  diagram.defaults.strokeWidth = num(diagram.defaults.strokeWidth, 3);
+  diagram.defaults.fill = str(diagram.defaults.fill, "none");
+  diagram.defaults.fontFamily = str(diagram.defaults.fontFamily, "Arial, system-ui, sans-serif");
+  diagram.defaults.fontSize = num(diagram.defaults.fontSize, 18);
+  diagram.defaults.labelColor = str(diagram.defaults.labelColor, "#000000");
+
+  const xLo = MARGIN;
+  const yLo = MARGIN;
+  const xHi = CANVAS_W - MARGIN;
+  const yHi = CANVAS_H - MARGIN;
+
+  // Rects: clamp x/y and size to keep within margins
+  diagram.rects = arr<any>(diagram.rects).map((r) => {
+    const w = num(r.w, 0);
+    const h = num(r.h, 0);
+
+    // clamp top-left so bottom-right stays inside
+    const x = clamp(num(r.x, 0), xLo, Math.max(xLo, xHi - w));
+    const y = clamp(num(r.y, 0), yLo, Math.max(yLo, yHi - h));
+
+    return {
+      ...r,
+      x,
+      y,
+      w,
+      h,
+      rx: num(r.rx, 0),
+      ry: num(r.ry, 0),
+    };
+  });
+
+  // Circles: clamp center so circle stays inside
+  diagram.circles = arr<any>(diagram.circles).map((c) => {
+    const r = Math.max(0, num(c.r, 0));
+    const cx = clamp(num(c.cx, 0), xLo + r, xHi - r);
+    const cy = clamp(num(c.cy, 0), yLo + r, yHi - r);
+    return { ...c, cx, cy, r };
+  });
+
+  // Ellipses: clamp center so ellipse stays inside
+  diagram.ellipses = arr<any>(diagram.ellipses).map((e) => {
+    const rx = Math.max(0, num(e.rx, 0));
+    const ry = Math.max(0, num(e.ry, 0));
+    const cx = clamp(num(e.cx, 0), xLo + rx, xHi - rx);
+    const cy = clamp(num(e.cy, 0), yLo + ry, yHi - ry);
+    return { ...e, cx, cy, rx, ry };
+  });
+
+  // Segments: clamp endpoints
+  diagram.segments = arr<any>(diagram.segments).map((seg) => {
+    const ax = clamp(num(seg?.a?.[0], 0), xLo, xHi);
+    const ay = clamp(num(seg?.a?.[1], 0), yLo, yHi);
+    const bx = clamp(num(seg?.b?.[0], 0), xLo, xHi);
+    const by = clamp(num(seg?.b?.[1], 0), yLo, yHi);
+    return { ...seg, a: [ax, ay], b: [bx, by] };
+  });
+
+  // Polygons: clamp each point
+  diagram.polygons = arr<any>(diagram.polygons).map((p) => {
+    const points = arr<any>(p.points).map((pt) => {
+      const px = clamp(num(pt?.[0], 0), xLo, xHi);
+      const py = clamp(num(pt?.[1], 0), yLo, yHi);
+      return [px, py];
+    });
+    return { ...p, points };
+  });
+
+  // Points: clamp each location
+  diagram.points = arr<any>(diagram.points).map((p) => {
+    const px = clamp(num(p?.at?.[0], 0), xLo, xHi);
+    const py = clamp(num(p?.at?.[1], 0), yLo, yHi);
+    return { ...p, at: [px, py] };
+  });
+
+  // Labels: clamp x/y (keep text inside page-ish)
+  diagram.labels = arr<any>(diagram.labels).map((l) => {
+    const x = clamp(num(l.x, 0), xLo, xHi);
+    const y = clamp(num(l.y, 0), yLo, yHi);
+    return {
+      ...l,
+      text: str(l.text, ""),
+      x,
+      y,
+      color: str(l.color, "#000000"),
+      fontSize: num(l.fontSize, 18),
+      bold: !!l.bold,
+    };
+  });
+
+  return diagram;
+}
+
+// ----------------- handler -----------------
 export default async function handler(req: any, res: any) {
   try {
     if (req.method !== "POST") {
@@ -235,8 +361,22 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    const diagram = JSON.parse(jsonText);
-    res.status(200).json({ diagram, usage: resp.usage ?? null });
+    let diagram: any;
+    try {
+      diagram = JSON.parse(jsonText);
+    } catch (parseErr: any) {
+      res.status(500).json({
+        error: "Failed to parse model JSON.",
+        details: parseErr?.message ?? String(parseErr),
+        // helpful for debugging; keep small
+        snippet: String(jsonText).slice(0, 300),
+      });
+      return;
+    }
+
+    const safeDiagram = normalizeAndClamp(diagram);
+
+    res.status(200).json({ diagram: safeDiagram, usage: resp.usage ?? null });
   } catch (e: any) {
     res.status(500).json({ error: e?.message ?? String(e) });
   }
