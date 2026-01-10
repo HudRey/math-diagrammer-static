@@ -398,17 +398,22 @@ function hookDragHandlers() {
     };
   };
 
-  // ---- coordinate helper ----
-  const svgPoint = (clientX: number, clientY: number) => {
-    const pt = svg.createSVGPoint();
-    pt.x = clientX;
-    pt.y = clientY;
-    const ctm = svg.getScreenCTM();
-    if (!ctm) return { x: clientX, y: clientY };
-    const inv = ctm.inverse();
-    const p = pt.matrixTransform(inv);
-    return { x: p.x, y: p.y };
-  };
+// Grab world group (your renderer should wrap shapes in <g id="world">...</g>)
+const world = (svg.querySelector("#world") as SVGGElement | null) ?? svg;
+
+// ---- coordinate helper (IMPORTANT: use WORLD CTM) ----
+const svgPoint = (clientX: number, clientY: number) => {
+  const pt = svg.createSVGPoint();
+  pt.x = clientX;
+  pt.y = clientY;
+
+  const ctm = world.getScreenCTM(); // <-- key change
+  if (!ctm) return { x: clientX, y: clientY };
+
+  const p = pt.matrixTransform(ctm.inverse());
+  return { x: p.x, y: p.y };
+};
+
 
   // Endpoint ↔ point matching tolerance
   const ENDPOINT_EPS = 0.75;
