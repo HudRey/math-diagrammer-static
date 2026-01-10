@@ -4,9 +4,9 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// IMPORTANT: In Structured Outputs with strict JSON schema,
-// if additionalProperties=false, OpenAI requires "required" to include
-// EVERY key listed in "properties" for that object.
+// Structured Outputs strict mode requirement (important):
+// If additionalProperties=false at any object level,
+// OpenAI requires `required` to list EVERY key in `properties`.
 const DIAGRAM_SCHEMA = {
   name: "diagram_spec",
   strict: true,
@@ -24,6 +24,7 @@ const DIAGRAM_SCHEMA = {
         },
         required: ["width", "height", "bg"],
       },
+
       defaults: {
         type: "object",
         additionalProperties: false,
@@ -165,9 +166,18 @@ const DIAGRAM_SCHEMA = {
       },
     },
 
-    // Only require canvas + defaults globally.
-    // All other arrays are optional.
-    required: ["canvas", "defaults"],
+    // ✅ REQUIRED must include every top-level key in properties
+    required: [
+      "canvas",
+      "defaults",
+      "rects",
+      "circles",
+      "ellipses",
+      "polygons",
+      "segments",
+      "points",
+      "labels",
+    ],
   },
 };
 
@@ -176,17 +186,17 @@ function systemPrompt() {
 You output diagram JSON that matches the schema exactly.
 
 Hard rules:
+- Always output ALL top-level keys: canvas, defaults, rects, circles, ellipses, polygons, segments, points, labels.
+  If a section is unused, output it as an empty array [].
 - canvas is 900x450 with bg "#ffffff"
 - defaults.stroke "#000000" and defaults.labelColor "#000000"
-- keep shapes and labels at least 40px from edges
-- labels readable and near intended objects
-- do not invent side lengths unless the user asks
-- do not include extra keys
-- If you include rects/circles/ellipses/polygons/segments/points/labels, each item must include ALL fields required by the schema.
+- Keep shapes/labels at least 40px from edges.
+- Labels readable and near intended objects.
+- Do not invent side lengths unless the user asks.
+- Do not include extra keys.
 `.trim();
 }
 
-// Vercel Node runtime
 export const config = { runtime: "nodejs" };
 
 export default async function handler(req: any, res: any) {
