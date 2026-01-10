@@ -7,21 +7,37 @@ body {
   color: #111;
 }
 
+/* Overall layout */
 .layout {
+  height: 100vh;
+  width: 100vw;
   display: flex;
-  gap: 16px;
-  padding: 16px;
-  align-items: flex-start;
+  overflow: hidden; /* prevents canvas from spilling */
+}
+.stage {
+  flex: 1;
+  min-width: 0;      /* CRITICAL: allows stage to shrink */
+  min-height: 0;
+  display: flex;
+  background: #f7f7f7;
 }
 
+
+/* Left panel: fixed-ish and scrollable */
 .panel {
-  width: 420px;
-  max-height: calc(100vh - 32px);
-  overflow: auto;
+  width: clamp(320px, 32vw, 460px);
+  min-width: 300px;
+  max-width: 520px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  padding: 14px;
+  border-right: 1px solid #ddd;
   background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 12px;
-  padding: 12px;
+
+  overflow: auto; /* panel always usable */
 }
 
 .title {
@@ -121,11 +137,18 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 }
 
 .svgHost {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+
+  overflow: auto;      /* key: scroll when SVG is large */
+  padding: 16px;
+
   display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 680px;
+  align-items: flex-start;   /* don’t vertically center huge diagrams */
+  justify-content: center;   /* horizontal centering is fine */
 }
+
 
 .err {
   margin-top: 8px;
@@ -177,9 +200,28 @@ details[open] summary::before { content: "▾"; }
 
 .sectionBody { margin-top: 10px; }
 
-.debug { margin-top: 12px; }
+.debug { margin-top: auto;}
 .debugBody { padding: 8px 0; }
 .debugLabel { font-size: 12px; opacity: 0.7; margin: 6px 0; }
 .debugJson { max-height: 220px; overflow: auto; background: #111; color: #eee; padding: 10px; border-radius: 8px; font-size: 12px; }
 
-.svgHost svg { touch-action: none; user-select: none; }
+.svgHost svg { 
+  max-width: 100%; 
+  height: auto;
+  display: block;
+
+  touch-action: none; 
+  user-select: none; 
+}
+
+@media (max-width: 900px) {
+  .layout {
+    flex-direction: column;
+  }
+  .panel {
+    width: 100%;
+    max-width: none;
+    border-right: none;
+    border-bottom: 1px solid #ddd;
+  }
+}
