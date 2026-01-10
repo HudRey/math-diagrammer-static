@@ -378,6 +378,26 @@ function hookDragHandlers() {
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
   const round = (v: number) => Math.round(v * 100) / 100;
 
+  // NEW: clamp the translation so ALL points remain in-bounds (prevents "squish")
+  const clampDeltaForPoints = (pts: [number, number][], dx: number, dy: number) => {
+    let minDx = -Infinity;
+    let maxDx = Infinity;
+    let minDy = -Infinity;
+    let maxDy = Infinity;
+
+    for (const [x, y] of pts) {
+      minDx = Math.max(minDx, -x);
+      maxDx = Math.min(maxDx, W - x);
+      minDy = Math.max(minDy, -y);
+      maxDy = Math.min(maxDy, H - y);
+    }
+
+    return {
+      dx: clamp(dx, minDx, maxDx),
+      dy: clamp(dy, minDy, maxDy),
+    };
+  };
+
   // ---- coordinate helper ----
   const svgPoint = (clientX: number, clientY: number) => {
     const pt = svg.createSVGPoint();
@@ -712,31 +732,37 @@ function hookDragHandlers() {
     }
 
     // --- ENTITY move ---
-    const dx = p.x - drag.startX;
-    const dy = p.y - drag.startY;
-    drag.dx = dx;
-    drag.dy = dy;
+    let dx = p.x - drag.startX;
+    let dy = p.y - drag.startY;
 
     if (drag.entity === "segment") {
       const line = drag.el as SVGLineElement;
       if (!drag.baseSegment) return;
 
-      const ax = clamp(drag.baseSegment.ax + dx, 0, W);
-      const ay = clamp(drag.baseSegment.ay + dy, 0, H);
-      const bx = clamp(drag.baseSegment.bx + dx, 0, W);
-      const by = clamp(drag.baseSegment.by + dy, 0, H);
+      // Clamp translation so BOTH endpoints stay in bounds (rigid move)
+      const bounded = clampDeltaForPoints(
+        [
+          [drag.baseSegment.ax, drag.baseSegment.ay],
+          [drag.baseSegment.bx, drag.baseSegment.by],
+        ],
+        dx,
+        dy
+      );
+      dx = bounded.dx;
+      dy = bounded.dy;
 
-      line.setAttribute("x1", String(ax));
-      line.setAttribute("y1", String(ay));
-      line.setAttribute("x2", String(bx));
-      line.setAttribute("y2", String(by));
+      drag.dx = dx;
+      drag.dy = dy;
 
-      // move linked endpoint dots from BASE coords
+      line.setAttribute("x1", String(drag.baseSegment.ax + dx));
+      line.setAttribute("y1", String(drag.baseSegment.ay + dy));
+      line.setAttribute("x2", String(drag.baseSegment.bx + dx));
+      line.setAttribute("y2", String(drag.baseSegment.by + dy));
+
+      // move linked endpoint dots from BASE coords with bounded dx/dy
       for (const bp of drag.linkedPointBases) {
-        const cx = clamp(bp.x + dx, 0, W);
-        const cy = clamp(bp.y + dy, 0, H);
-        bp.el.setAttribute("cx", String(cx));
-        bp.el.setAttribute("cy", String(cy));
+        bp.el.setAttribute("cx", String(bp.x + dx));
+        bp.el.setAttribute("cy", String(bp.y + dy));
       }
       return;
     }
@@ -745,20 +771,27 @@ function hookDragHandlers() {
       const polyEl = drag.el as SVGPolygonElement;
       if (!drag.basePolygon) return;
 
-      const moved = drag.basePolygon.points.map(([x, y]) => [
-        clamp(x + dx, 0, W),
-        clamp(y + dy, 0, H),
-      ] as [number, number]);
+      // Clamp translation so ALL vertices stay in bounds (rigid move)
+      const bounded = clampDeltaForPoints(drag.basePolygon.points, dx, dy);
+      dx = bounded.dx;
+      dy = bounded.dy;
+
+      drag.dx = dx;
+      drag.dy = dy;
+
+      const moved = drag.basePolygon.points.map(([x, y]) => [x + dx, y + dy] as [number, number]);
       polyEl.setAttribute("points", moved.map(([x, y]) => `${x},${y}`).join(" "));
 
       for (const bl of drag.linkedLabelBases) {
-        const lx = clamp(bl.x + dx, 0, W);
-        const ly = clamp(bl.y + dy, 0, H);
-        bl.el.setAttribute("x", String(lx));
-        bl.el.setAttribute("y", String(ly));
+        bl.el.setAttribute("x", String(bl.x + dx));
+        bl.el.setAttribute("y", String(bl.y + dy));
       }
       return;
     }
+
+    // Everything else keeps prior behavior
+    drag.dx = dx;
+    drag.dy = dy;
 
     if (drag.entity === "rect") {
       const r = currentDiagram.rects?.[drag.idx];
@@ -877,8 +910,7 @@ btnGenerate.addEventListener("click", async () => {
 
   try {
     const diagram = await generateDiagram(description);
-    mountDiagram(diagram, { setBase: true }); // NEW: snapshot for reset
-    // After generating, ensure it's visible
+    mountDiagram(diagram, { setBase: true }); // snapshot for reset
     resetViewRecenter();
     setStatus("Generated. Drag labels to adjust.");
   } catch (e: any) {
