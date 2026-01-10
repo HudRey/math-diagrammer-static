@@ -56,12 +56,24 @@ app.innerHTML = `
       </div>
 
       <div id="status" class="status"></div>
-      <div id="err" class="err"></div>
+<div id="err" class="err"></div>
 
-      <div class="row2">
-        <button id="downloadSvg">Download SVG</button>
-        <button id="downloadPng">Download PNG</button>
-      </div>
+<details class="debug">
+  <summary>Debug</summary>
+  <div class="debugBody">
+    <div class="debugLabel">Rendered (normalized) DiagramSpec</div>
+    <pre id="debugJson" class="debugJson"></pre>
+    <div class="debugLabel">Raw server response</div>
+<pre id="debugRaw" class="debugJson"></pre>
+
+  </div>
+</details>
+
+<div class="row2">
+  <button id="downloadSvg">Download SVG</button>
+  <button id="downloadPng">Download PNG</button>
+</div>
+
     </div>
 
     <div class="stage">
@@ -74,6 +86,8 @@ const descEl = $("#desc") as HTMLTextAreaElement;
 const statusEl = $("#status") as HTMLDivElement;
 const errEl = $("#err") as HTMLDivElement;
 const svgHost = $("#svgHost") as HTMLDivElement;
+const debugJsonEl = document.getElementById("debugJson") as HTMLPreElement | null;
+const debugRawEl = document.getElementById("debugRaw") as HTMLPreElement | null;
 
 const btnGenerate = $("#generate") as HTMLButtonElement;
 const btnExample = $("#example") as HTMLButtonElement;
@@ -173,12 +187,18 @@ function mountDiagram(diagram: DiagramSpec) {
   const safe = validateSpec(diagram);
   currentDiagram = safe;
 
-  // Renderer now includes id="diagramSvg"
+  // DEBUG: show exactly what we're rendering
+  if (debugJsonEl) {
+    debugJsonEl.textContent = JSON.stringify(safe, null, 2);
+  }
+
+  // Renderer includes id="diagramSvg"
   const svgString = renderDiagramSVG(safe);
   svgHost.innerHTML = svgString;
 
   hookDragHandlers();
 }
+
 
 function downloadText(filename: string, data: string, mime: string) {
   const blob = new Blob([data], { type: mime });
@@ -341,6 +361,7 @@ async function generateDiagram(description: string): Promise<DiagramSpec> {
 
   const diagram = json?.diagram;
   if (!diagram) throw new Error("Missing `diagram` in response.");
+if (debugRawEl) debugRawEl.textContent = JSON.stringify(json, null, 2);
 
   // Normalize in the frontend boundary (keeps state safe)
   return validateSpec(diagram);
@@ -410,3 +431,4 @@ btnDownloadPng.addEventListener("click", () => {
   downloadPNGFromSVG(svgString, "diagram.png");
   setStatus("PNG downloaded.");
 });
+

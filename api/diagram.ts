@@ -392,6 +392,46 @@ diagram.labels = arr<any>(diagram.labels).map((l) => {
   diagram.points ??= [];
   diagram.labels ??= [];
 
+// --- Improve vertex label placement: push single-letter labels away from polygon centroid ---
+function dist2(ax: number, ay: number, bx: number, by: number) {
+  const dx = ax - bx;
+  const dy = ay - by;
+  return dx * dx + dy * dy;
+}
+
+const VERTEX_SNAP_R2 = 18 * 18; // how close label must be to a vertex to count as "on it"
+const LABEL_PUSH = 16; // pixels to push outward
+
+for (const poly of diagram.polygons ?? []) {
+  const pts = arr<any>(poly.points).map((p) => toPair(p, [0, 0]));
+  if (pts.length < 3) continue;
+
+  // centroid (simple average)
+  const cx = pts.reduce((sum, p) => sum + p[0], 0) / pts.length;
+  const cy = pts.reduce((sum, p) => sum + p[1], 0) / pts.length;
+
+  for (const lab of diagram.labels ?? []) {
+    const t = str(lab?.text, "");
+    if (!/^[A-Z]$/.test(t)) continue;
+
+    // if label is very close to any vertex, push it outward away from centroid
+    for (const [vx, vy] of pts) {
+      if (dist2(lab.x, lab.y, vx, vy) <= VERTEX_SNAP_R2) {
+        const dx = vx - cx;
+        const dy = vy - cy;
+        const len = Math.hypot(dx, dy) || 1;
+        const ux = dx / len;
+        const uy = dy / len;
+
+        lab.x = clamp(vx + ux * LABEL_PUSH, xLo, xHi);
+        lab.y = clamp(vy + uy * LABEL_PUSH, yLo, yHi);
+        break;
+      }
+    }
+  }
+}
+
+
   return diagram;
 }
 

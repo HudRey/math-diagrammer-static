@@ -176,3 +176,8 @@ summary::before {
 details[open] summary::before { content: "▾"; }
 
 .sectionBody { margin-top: 10px; }
+
+.debug { margin-top: 12px; }
+.debugBody { padding: 8px 0; }
+.debugLabel { font-size: 12px; opacity: 0.7; margin: 6px 0; }
+.debugJson { max-height: 220px; overflow: auto; background: #111; color: #eee; padding: 10px; border-radius: 8px; font-size: 12px; }
