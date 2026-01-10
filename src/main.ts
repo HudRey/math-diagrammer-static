@@ -2,10 +2,10 @@ import "./style.css";
 import { renderDiagramSVG, validateSpec, type DiagramSpec } from "./renderDiagram";
 
 type StylePrefs = {
-  stroke: string;          // shape outline
-  fill: string;            // shape fill
-  labelColor: string;      // annotations color
-  labelFontSize: number;   // annotations font size
+  stroke: string; // shape outline
+  fill: string; // shape fill
+  labelColor: string; // annotations color
+  labelFontSize: number; // annotations font size
 };
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
@@ -128,37 +128,37 @@ function applyStyle(diagram: DiagramSpec, prefs: StylePrefs): DiagramSpec {
   d.defaults.fontSize = prefs.labelFontSize;
 
   // Shapes (optional arrays)
-  d.rects = (d.rects ?? []).map(r => ({
+  d.rects = (d.rects ?? []).map((r) => ({
     ...r,
     stroke: prefs.stroke,
     fill: prefs.fill,
   }));
 
-  d.circles = (d.circles ?? []).map(c => ({
+  d.circles = (d.circles ?? []).map((c) => ({
     ...c,
     stroke: prefs.stroke,
     fill: prefs.fill,
   }));
 
-  d.ellipses = (d.ellipses ?? []).map(e => ({
+  d.ellipses = (d.ellipses ?? []).map((e) => ({
     ...e,
     stroke: prefs.stroke,
     fill: prefs.fill,
   }));
 
-  d.polygons = (d.polygons ?? []).map(p => ({
+  d.polygons = (d.polygons ?? []).map((p) => ({
     ...p,
     stroke: prefs.stroke,
     fill: prefs.fill,
   }));
 
-  d.segments = (d.segments ?? []).map(s => ({
-    ...s,
+  d.segments = (d.segments ?? []).map((seg) => ({
+    ...seg,
     stroke: prefs.stroke,
   }));
 
   // Labels
-  d.labels = (d.labels ?? []).map(l => ({
+  d.labels = (d.labels ?? []).map((l) => ({
     ...l,
     color: prefs.labelColor,
     fontSize: prefs.labelFontSize,
@@ -168,24 +168,15 @@ function applyStyle(diagram: DiagramSpec, prefs: StylePrefs): DiagramSpec {
 }
 
 // ---------- Rendering ----------
-function injectSvgId(svgString: string) {
-  // Ensure we have an id to hook dragging via getElementById("diagramSvg")
-  // Only replace the first "<svg"
-  return svgString.replace("<svg ", `<svg id="diagramSvg" `);
-}
-
 function mountDiagram(diagram: DiagramSpec) {
-  currentDiagram = diagram;
-
-  // Validate basic shape first (canvas sizes, etc.)
+  // Normalize/validate once at the boundary so state is always safe
   const safe = validateSpec(diagram);
+  currentDiagram = safe;
 
-  // Render using the shared renderer
-  const svgString = injectSvgId(renderDiagramSVG(safe));
-
+  // Renderer now includes id="diagramSvg"
+  const svgString = renderDiagramSVG(safe);
   svgHost.innerHTML = svgString;
 
-  // Hook label dragging after mount
   hookDragHandlers();
 }
 
@@ -208,7 +199,6 @@ function downloadPNGFromSVG(svgString: string, filename: string) {
   const img = new Image();
   img.onload = () => {
     const canvas = document.createElement("canvas");
-    // Use current diagram canvas size when possible
     const w = currentDiagram?.canvas?.width ?? 900;
     const h = currentDiagram?.canvas?.height ?? 450;
 
@@ -224,20 +214,23 @@ function downloadPNGFromSVG(svgString: string, filename: string) {
 
     ctx.drawImage(img, 0, 0);
 
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        setError("Failed to create PNG blob.");
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          setError("Failed to create PNG blob.");
+          URL.revokeObjectURL(url);
+          return;
+        }
+        const a = document.createElement("a");
+        const pngUrl = URL.createObjectURL(blob);
+        a.href = pngUrl;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(pngUrl);
         URL.revokeObjectURL(url);
-        return;
-      }
-      const a = document.createElement("a");
-      const pngUrl = URL.createObjectURL(blob);
-      a.href = pngUrl;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(pngUrl);
-      URL.revokeObjectURL(url);
-    }, "image/png");
+      },
+      "image/png"
+    );
   };
 
   img.onerror = () => {
@@ -272,7 +265,6 @@ function hookDragHandlers() {
     const target = ev.target as Element | null;
     if (!target) return;
 
-    // IMPORTANT: this matches renderDiagram.ts: data-label-index="${i}"
     const idxStr = target.getAttribute("data-label-index");
     if (!idxStr) return;
 
@@ -292,6 +284,7 @@ function hookDragHandlers() {
 
   const onPointerMove = (ev: PointerEvent) => {
     if (draggingIdx === null || !currentDiagram) return;
+
     const labels = currentDiagram.labels ?? [];
     const label = labels[draggingIdx];
     if (!label) return;
@@ -300,11 +293,9 @@ function hookDragHandlers() {
     const newX = p.x - offsetX;
     const newY = p.y - offsetY;
 
-    // Update state
     label.x = Math.round(newX * 100) / 100;
     label.y = Math.round(newY * 100) / 100;
 
-    // Fast-path update DOM so it feels instant
     const textEl = svg.querySelector(`[data-label-index="${draggingIdx}"]`) as SVGTextElement | null;
     if (textEl) {
       textEl.setAttribute("x", String(label.x));
@@ -351,14 +342,15 @@ async function generateDiagram(description: string): Promise<DiagramSpec> {
   const diagram = json?.diagram;
   if (!diagram) throw new Error("Missing `diagram` in response.");
 
-  // validateSpec throws with human-readable error if something is wrong
+  // Normalize in the frontend boundary (keeps state safe)
   return validateSpec(diagram);
 }
 
 // ---------- UI wiring ----------
 btnExample.addEventListener("click", () => {
   clearMessages();
-  descEl.value = "Draw a rectangle for a perimeter problem. Label top = 12 cm, left = 7 cm, right = 7 cm, bottom = x cm.";
+  descEl.value =
+    "Draw a rectangle for a perimeter problem. Label top = 12 cm, left = 7 cm, right = 7 cm, bottom = x cm.";
   setStatus("Example loaded. Click Generate.");
 });
 
@@ -403,7 +395,7 @@ btnDownloadSvg.addEventListener("click", () => {
     setError("No diagram to download yet.");
     return;
   }
-  const svgString = injectSvgId(renderDiagramSVG(currentDiagram));
+  const svgString = renderDiagramSVG(currentDiagram);
   downloadText("diagram.svg", svgString, "image/svg+xml");
   setStatus("SVG downloaded.");
 });
@@ -414,7 +406,7 @@ btnDownloadPng.addEventListener("click", () => {
     setError("No diagram to download yet.");
     return;
   }
-  const svgString = injectSvgId(renderDiagramSVG(currentDiagram));
+  const svgString = renderDiagramSVG(currentDiagram);
   downloadPNGFromSVG(svgString, "diagram.png");
   setStatus("PNG downloaded.");
 });
