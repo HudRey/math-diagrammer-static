@@ -20,13 +20,21 @@ app.innerHTML = `
   <div class="layout">
     <div class="panel">
       <div class="title">Math Diagram Renderer</div>
-      <div class="sub">Describe your diagram → generate → drag labels → download.</div>
+      <div class="sub">Describe your diagram → generate → drag → download.</div>
 
       <label>Diagram description
         <textarea id="desc" placeholder="Example: Draw a rectangle for a perimeter problem. Label top = 12 cm, left = 7 cm, right = 7 cm, bottom = x cm."></textarea>
       </label>
 
-      <details open>
+      <div class="row2">
+        <button id="generate">Generate</button>
+        <button id="example">Load example</button>
+      </div>
+
+      <div id="status" class="status"></div>
+      <div id="err" class="err"></div>
+
+<details>
         <summary>Style</summary>
         <div class="sectionBody">
 
@@ -76,14 +84,6 @@ app.innerHTML = `
           <button id="applyStyle">Apply style to current diagram</button>
         </div>
       </details>
-
-      <div class="row2">
-        <button id="generate">Generate</button>
-        <button id="example">Load example</button>
-      </div>
-
-      <div id="status" class="status"></div>
-      <div id="err" class="err"></div>
 
       <!-- Downloads stay visible (NOT after debug) -->
       <div class="row2">
@@ -285,7 +285,7 @@ function downloadPNGFromSVG(svgString: string, filename: string) {
 }
 
 // ---------- View controls (NEW) ----------
-function resetViewFit() {
+function resetViewRecenter() {
   const svg = document.getElementById("diagramSvg") as SVGSVGElement | null;
   if (!svg) return;
 
@@ -317,8 +317,8 @@ btnResetView.addEventListener("click", () => {
     setError("No diagram yet. Generate first.");
     return;
   }
-  resetViewFit();
-  setStatus("View reset.");
+  resetViewRecenter();
+  setStatus("View recentered.");
 });
 
 btnApplyCanvas.addEventListener("click", () => {
@@ -345,7 +345,7 @@ btnApplyCanvas.addEventListener("click", () => {
 
   // re-render locally (no token spend)
   mountDiagram(updated);
-  resetViewFit();
+  resetViewRecenter();
   setStatus(`Canvas resized to ${W}×${H}.`);
 });
 
@@ -356,7 +356,7 @@ btnResetDiagram.addEventListener("click", () => {
     return;
   }
   mountDiagram(structuredClone(baseDiagram));
-  resetViewFit();
+  resetViewRecenter();
   setStatus("Diagram reset (no tokens spent).");
 });
 
@@ -879,7 +879,7 @@ btnGenerate.addEventListener("click", async () => {
     const diagram = await generateDiagram(description);
     mountDiagram(diagram, { setBase: true }); // NEW: snapshot for reset
     // After generating, ensure it's visible
-    resetViewFit();
+    resetViewRecenter();
     setStatus("Generated. Drag labels to adjust.");
   } catch (e: any) {
     console.error("Generate failed:", e);
