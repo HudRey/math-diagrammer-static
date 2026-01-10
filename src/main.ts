@@ -289,27 +289,26 @@ function resetViewFit() {
   const svg = document.getElementById("diagramSvg") as SVGSVGElement | null;
   if (!svg) return;
 
-  // Prefer fitting to world group if present
   const world = svg.querySelector("#world") as SVGGElement | null;
+  if (!world) return;
 
-  const W = svg.viewBox.baseVal.width || svg.clientWidth || (currentDiagram?.canvas.width ?? 900);
-  const H = svg.viewBox.baseVal.height || svg.clientHeight || (currentDiagram?.canvas.height ?? 450);
-  const pad = 20;
-
-  if (world) {
-    const bbox = world.getBBox();
-    if (bbox.width <= 0 || bbox.height <= 0) {
-      world.setAttribute("transform", "translate(0 0) scale(1)");
-      return;
-    }
-    const scale = Math.min((W - 2 * pad) / bbox.width, (H - 2 * pad) / bbox.height);
-    const tx = W / 2 - (bbox.x + bbox.width / 2) * scale;
-    const ty = H / 2 - (bbox.y + bbox.height / 2) * scale;
-    world.setAttribute("transform", `translate(${tx} ${ty}) scale(${scale})`);
+  const bbox = world.getBBox();
+  if (bbox.width <= 0 || bbox.height <= 0) {
+    world.setAttribute("transform", "translate(0 0) scale(1)");
     return;
   }
 
-  // Fallback: if no world group yet, just do nothing.
+  const W = svg.viewBox.baseVal.width || svg.clientWidth || (currentDiagram?.canvas.width ?? 900);
+  const H = svg.viewBox.baseVal.height || svg.clientHeight || (currentDiagram?.canvas.height ?? 450);
+
+  // translate only (keep scale = 1)
+  const cx = bbox.x + bbox.width / 2;
+  const cy = bbox.y + bbox.height / 2;
+
+  const tx = W / 2 - cx;
+  const ty = H / 2 - cy;
+
+  world.setAttribute("transform", `translate(${tx} ${ty}) scale(1)`);
 }
 
 btnResetView.addEventListener("click", () => {
@@ -809,7 +808,6 @@ function hookDragHandlers() {
 
     if (drag.kind === "entity" && currentDiagram) {
       applyDeltaToSpec(drag.entity, drag.idx, drag.dx, drag.dy, drag.linkedPointIdx, drag.linkedLabelIdx);
-      mountDiagram(currentDiagram);
     }
 
     drag = null;
