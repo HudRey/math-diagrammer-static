@@ -315,6 +315,7 @@ export function renderDiagramSVG(spec: DiagramSpec) {
 
   return `<svg id="diagramSvg" xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <rect width="100%" height="100%" fill="${bg}" />
+    <g id="world">
   ${rects}
   ${circles}
   ${ellipses}
@@ -322,5 +323,6 @@ export function renderDiagramSVG(spec: DiagramSpec) {
   ${segs}
   ${pts}
   ${labels}
+    </g>
 </svg>`.trim();
 }

@@ -29,6 +29,28 @@ app.innerHTML = `
       <details open>
         <summary>Style</summary>
         <div class="sectionBody">
+
+          <div class="row2">
+            <div>
+              <label>Canvas width</label>
+              <input id="canvasWidth" type="number" min="200" max="4000" step="10" value="900" />
+            </div>
+            <div>
+              <label>Canvas height</label>
+              <input id="canvasHeight" type="number" min="200" max="4000" step="10" value="450" />
+            </div>
+          </div>
+
+          <div class="row2">
+            <button id="applyCanvas">Apply canvas</button>
+            <button id="resetView">Reset view</button>
+          </div>
+
+          <div class="row2">
+            <button id="resetDiagram">Reset diagram</button>
+            <div></div>
+          </div>
+
           <div class="row2">
             <div>
               <label>Outline</label>
@@ -86,16 +108,6 @@ app.innerHTML = `
     </div>
   </div>
 `;
-try {
-  // your existing setup code that adds event listeners
-  // (the code that does: $("#generate"), $("#downloadPng"), etc.)
-} catch (e) {
-  console.error(e);
-  const err = document.querySelector<HTMLDivElement>("#err");
-  if (err) err.textContent = String(e);
-}
-
-
 
 // Debug sanity checks (these execute as real JS, not HTML)
 console.log("app injected:", !!document.querySelector(".layout"));
@@ -116,7 +128,18 @@ const btnApplyStyle = $("#applyStyle") as HTMLButtonElement;
 const btnDownloadSvg = $("#downloadSvg") as HTMLButtonElement;
 const btnDownloadPng = $("#downloadPng") as HTMLButtonElement;
 
+// NEW buttons
+const btnApplyCanvas = $("#applyCanvas") as HTMLButtonElement;
+const btnResetView = $("#resetView") as HTMLButtonElement;
+const btnResetDiagram = $("#resetDiagram") as HTMLButtonElement;
+
+// Canvas inputs
+const canvasWidthEl = $("#canvasWidth") as HTMLInputElement;
+const canvasHeightEl = $("#canvasHeight") as HTMLInputElement;
+
 let currentDiagram: DiagramSpec | null = null;
+// NEW: snapshot of last generated (or last example) diagram for "Reset diagram"
+let baseDiagram: DiagramSpec | null = null;
 
 // ---------- UI helpers ----------
 function setStatus(msg: string) {
@@ -177,11 +200,23 @@ function applyStyle(diagram: DiagramSpec, prefs: StylePrefs): DiagramSpec {
 }
 
 // ---------- Rendering ----------
-function mountDiagram(diagram: DiagramSpec) {
+function syncCanvasInputs(diagram: DiagramSpec) {
+  canvasWidthEl.value = String(diagram.canvas.width ?? 900);
+  canvasHeightEl.value = String(diagram.canvas.height ?? 450);
+}
+
+function mountDiagram(diagram: DiagramSpec, { setBase = false }: { setBase?: boolean } = {}) {
   console.log("mountDiagram called");
 
   const safe = validateSpec(diagram);
   currentDiagram = safe;
+
+  if (setBase) {
+    // keep a pristine snapshot for reset (no token spend later)
+    baseDiagram = structuredClone(safe);
+  }
+
+  syncCanvasInputs(safe);
 
   if (debugJsonEl) debugJsonEl.textContent = JSON.stringify(safe, null, 2);
 
@@ -249,7 +284,83 @@ function downloadPNGFromSVG(svgString: string, filename: string) {
   img.src = url;
 }
 
-// ---------- Dragging labels + grouped entities ----------
+// ---------- View controls (NEW) ----------
+function resetViewFit() {
+  const svg = document.getElementById("diagramSvg") as SVGSVGElement | null;
+  if (!svg) return;
+
+  // Prefer fitting to world group if present
+  const world = svg.querySelector("#world") as SVGGElement | null;
+
+  const W = svg.viewBox.baseVal.width || svg.clientWidth || (currentDiagram?.canvas.width ?? 900);
+  const H = svg.viewBox.baseVal.height || svg.clientHeight || (currentDiagram?.canvas.height ?? 450);
+  const pad = 20;
+
+  if (world) {
+    const bbox = world.getBBox();
+    if (bbox.width <= 0 || bbox.height <= 0) {
+      world.setAttribute("transform", "translate(0 0) scale(1)");
+      return;
+    }
+    const scale = Math.min((W - 2 * pad) / bbox.width, (H - 2 * pad) / bbox.height);
+    const tx = W / 2 - (bbox.x + bbox.width / 2) * scale;
+    const ty = H / 2 - (bbox.y + bbox.height / 2) * scale;
+    world.setAttribute("transform", `translate(${tx} ${ty}) scale(${scale})`);
+    return;
+  }
+
+  // Fallback: if no world group yet, just do nothing.
+}
+
+btnResetView.addEventListener("click", () => {
+  clearMessages();
+  if (!currentDiagram) {
+    setError("No diagram yet. Generate first.");
+    return;
+  }
+  resetViewFit();
+  setStatus("View reset.");
+});
+
+btnApplyCanvas.addEventListener("click", () => {
+  clearMessages();
+  if (!currentDiagram) {
+    setError("No diagram yet. Generate first.");
+    return;
+  }
+
+  const w = Number(canvasWidthEl.value);
+  const h = Number(canvasHeightEl.value);
+
+  if (!Number.isFinite(w) || !Number.isFinite(h)) {
+    setError("Canvas width/height must be valid numbers.");
+    return;
+  }
+
+  const W = Math.max(200, Math.min(4000, Math.round(w)));
+  const H = Math.max(200, Math.min(4000, Math.round(h)));
+
+  const updated = structuredClone(currentDiagram);
+  updated.canvas.width = W;
+  updated.canvas.height = H;
+
+  // re-render locally (no token spend)
+  mountDiagram(updated);
+  resetViewFit();
+  setStatus(`Canvas resized to ${W}×${H}.`);
+});
+
+btnResetDiagram.addEventListener("click", () => {
+  clearMessages();
+  if (!baseDiagram) {
+    setError("Nothing to reset to yet. Generate a diagram first.");
+    return;
+  }
+  mountDiagram(structuredClone(baseDiagram));
+  resetViewFit();
+  setStatus("Diagram reset (no tokens spent).");
+});
+
 // ---------- Dragging labels + grouped entities ----------
 function hookDragHandlers() {
   const svgOld = document.getElementById("diagramSvg") as SVGSVGElement | null;
@@ -341,7 +452,14 @@ function hookDragHandlers() {
   type DragMode = DragLabel | DragEntity;
   let drag: DragMode | null = null;
 
-  const applyDeltaToSpec = (entity: EntityKind, idx: number, dx: number, dy: number, linkedPointIdx: number[], linkedLabelIdx: number[]) => {
+  const applyDeltaToSpec = (
+    entity: EntityKind,
+    idx: number,
+    dx: number,
+    dy: number,
+    linkedPointIdx: number[],
+    linkedLabelIdx: number[]
+  ) => {
     if (!currentDiagram) return;
 
     if (entity === "rect") {
@@ -503,7 +621,9 @@ function hookDragHandlers() {
           if (!at) continue;
           const [px, py] = at;
 
-          const cEl = circleEls.find((c) => samePt([Number(c.getAttribute("cx")), Number(c.getAttribute("cy"))], [px, py]));
+          const cEl = circleEls.find((c) =>
+            samePt([Number(c.getAttribute("cx")), Number(c.getAttribute("cy"))], [px, py])
+          );
           if (cEl) {
             linkedPointBases.push({
               i: pi,
@@ -626,7 +746,10 @@ function hookDragHandlers() {
       const polyEl = drag.el as SVGPolygonElement;
       if (!drag.basePolygon) return;
 
-      const moved = drag.basePolygon.points.map(([x, y]) => [clamp(x + dx, 0, W), clamp(y + dy, 0, H)] as [number, number]);
+      const moved = drag.basePolygon.points.map(([x, y]) => [
+        clamp(x + dx, 0, W),
+        clamp(y + dy, 0, H),
+      ] as [number, number]);
       polyEl.setAttribute("points", moved.map(([x, y]) => `${x},${y}`).join(" "));
 
       for (const bl of drag.linkedLabelBases) {
@@ -699,9 +822,6 @@ function hookDragHandlers() {
   svg.addEventListener("pointerleave", onPointerUp);
 }
 
-
-
-
 // ---------- API ----------
 async function generateDiagram(description: string): Promise<DiagramSpec> {
   const res = await fetch("/api/diagram", {
@@ -759,7 +879,9 @@ btnGenerate.addEventListener("click", async () => {
 
   try {
     const diagram = await generateDiagram(description);
-    mountDiagram(diagram);
+    mountDiagram(diagram, { setBase: true }); // NEW: snapshot for reset
+    // After generating, ensure it's visible
+    resetViewFit();
     setStatus("Generated. Drag labels to adjust.");
   } catch (e: any) {
     console.error("Generate failed:", e);
