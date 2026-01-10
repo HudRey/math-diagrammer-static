@@ -238,6 +238,7 @@ function downloadPNGFromSVG(svgString: string, filename: string) {
 }
 
 // ---------- Dragging labels + grouped entities ----------
+// ---------- Dragging labels + grouped entities ----------
 function hookDragHandlers() {
   const svgOld = document.getElementById("diagramSvg") as SVGSVGElement | null;
   if (!svgOld || !currentDiagram) return;
@@ -246,9 +247,14 @@ function hookDragHandlers() {
   const svg = svgOld.cloneNode(true) as SVGSVGElement;
   svgOld.replaceWith(svg);
 
-  // Capture a non-null snapshot for TS. This is the same object as currentDiagram at this moment.
-  const diagram = currentDiagram;
-  if (!diagram) return;
+  // Prevent browser panning/selection during pointer drags
+  svg.style.touchAction = "none";
+
+  const W = currentDiagram.canvas.width ?? 900;
+  const H = currentDiagram.canvas.height ?? 450;
+
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  const round = (v: number) => Math.round(v * 100) / 100;
 
   // ---- coordinate helper ----
   const svgPoint = (clientX: number, clientY: number) => {
@@ -262,15 +268,13 @@ function hookDragHandlers() {
     return { x: p.x, y: p.y };
   };
 
-  // Match endpoints to points (tolerance)
-  const ENDPOINT_EPS = 0.5;
+  // Endpoint ↔ point matching tolerance
+  const ENDPOINT_EPS = 0.75;
   const samePt = (a: [number, number], b: [number, number]) =>
     Math.abs(a[0] - b[0]) <= ENDPOINT_EPS && Math.abs(a[1] - b[1]) <= ENDPOINT_EPS;
 
-  // Vertex label association thresholds
-  const VERTEX_LABEL_EPS = 26; // pixels; label within this range of a vertex counts as that vertex label
-
-  // Find which polygon vertex a label is closest to, if within threshold
+  // Vertex label association threshold
+  const VERTEX_LABEL_EPS = 26; // px distance from vertex counts as that vertex label
   const nearestVertexIndex = (label: { x: number; y: number }, verts: [number, number][]) => {
     let bestI = -1;
     let bestD2 = Infinity;
@@ -288,41 +292,48 @@ function hookDragHandlers() {
     return Math.sqrt(bestD2) <= VERTEX_LABEL_EPS ? bestI : -1;
   };
 
-  type DragMode =
-    | { kind: "label"; idx: number; offsetX: number; offsetY: number }
-    | {
-        kind: "entity";
-        entity: string;
-        idx: number;
-        startX: number;
-        startY: number;
-        dx: number;
-        dy: number;
-        // element we transform during drag (svg group or fallback target)
-        g: SVGGElement | SVGElement;
-        // segment-linked point indices (move live + bake)
-        linkedPointIdx: number[];
-        linkedPointEls: SVGElement[];
-        // polygon-linked label indices (move live + bake)
-        linkedLabelIdx: number[];
-        linkedLabelEls: SVGTextElement[];
-      };
+  type EntityKind = "segment" | "polygon" | "rect" | "circle" | "ellipse" | "point";
 
+  type DragLabel = {
+    kind: "label";
+    idx: number;
+    offsetX: number;
+    offsetY: number;
+  };
+
+  type DragEntity = {
+    kind: "entity";
+    entity: EntityKind;
+    idx: number;
+    startX: number;
+    startY: number;
+    dx: number;
+    dy: number;
+
+    // DOM element being dragged
+    el: SVGElement;
+
+    // Base geometry used to avoid "flying"
+    baseSegment?: { ax: number; ay: number; bx: number; by: number };
+    basePolygon?: { points: [number, number][] };
+
+    // Linked points (for segment endpoints)
+    linkedPointIdx: number[];
+    linkedPointBases: Array<{ i: number; x: number; y: number; el: SVGCircleElement }>;
+
+    // Linked labels (for polygon vertex labels)
+    linkedLabelIdx: number[];
+    linkedLabelBases: Array<{ i: number; x: number; y: number; el: SVGTextElement }>;
+  };
+
+  type DragMode = DragLabel | DragEntity;
   let drag: DragMode | null = null;
 
-  const round = (v: number) => Math.round(v * 100) / 100;
+  const applyDeltaToSpec = (entity: EntityKind, idx: number, dx: number, dy: number, linkedPointIdx: number[], linkedLabelIdx: number[]) => {
+    if (!currentDiagram) return;
 
-  const applyDeltaToSpec = (
-    entity: string,
-    idx: number,
-    dx: number,
-    dy: number,
-    linkedPointIdx: number[],
-    linkedLabelIdx: number[]
-  ) => {
-    // Use captured diagram (non-null)
     if (entity === "rect") {
-      const r = diagram.rects?.[idx];
+      const r = currentDiagram.rects?.[idx];
       if (!r) return;
       r.x = round(r.x + dx);
       r.y = round(r.y + dy);
@@ -330,7 +341,7 @@ function hookDragHandlers() {
     }
 
     if (entity === "circle") {
-      const c = diagram.circles?.[idx];
+      const c = currentDiagram.circles?.[idx];
       if (!c) return;
       c.cx = round(c.cx + dx);
       c.cy = round(c.cy + dy);
@@ -338,7 +349,7 @@ function hookDragHandlers() {
     }
 
     if (entity === "ellipse") {
-      const e = diagram.ellipses?.[idx];
+      const e = currentDiagram.ellipses?.[idx];
       if (!e) return;
       e.cx = round(e.cx + dx);
       e.cy = round(e.cy + dy);
@@ -346,13 +357,13 @@ function hookDragHandlers() {
     }
 
     if (entity === "polygon") {
-      const p = diagram.polygons?.[idx];
+      const p = currentDiagram.polygons?.[idx];
       if (!p) return;
       p.points = (p.points ?? []).map(([x, y]) => [round(x + dx), round(y + dy)]);
 
-      // also move the linked vertex labels in the JSON
+      // bake linked vertex labels
       for (const li of linkedLabelIdx) {
-        const lab = diagram.labels?.[li];
+        const lab = currentDiagram.labels?.[li];
         if (!lab) continue;
         lab.x = round(lab.x + dx);
         lab.y = round(lab.y + dy);
@@ -361,14 +372,14 @@ function hookDragHandlers() {
     }
 
     if (entity === "segment") {
-      const s = diagram.segments?.[idx];
+      const s = currentDiagram.segments?.[idx];
       if (!s) return;
       s.a = [round(s.a[0] + dx), round(s.a[1] + dy)];
       s.b = [round(s.b[0] + dx), round(s.b[1] + dy)];
 
-      // bake endpoint points too
+      // bake linked endpoint points
       for (const pi of linkedPointIdx) {
-        const p = diagram.points?.[pi];
+        const p = currentDiagram.points?.[pi];
         if (!p) continue;
         p.at = [round(p.at[0] + dx), round(p.at[1] + dy)];
       }
@@ -376,7 +387,7 @@ function hookDragHandlers() {
     }
 
     if (entity === "point") {
-      const p = diagram.points?.[idx];
+      const p = currentDiagram.points?.[idx];
       if (!p) return;
       p.at = [round(p.at[0] + dx), round(p.at[1] + dy)];
       return;
@@ -384,16 +395,18 @@ function hookDragHandlers() {
   };
 
   const onPointerDown = (ev: PointerEvent) => {
-    const target = ev.target as Element | null;
-    if (!target) return;
+    ev.preventDefault();
 
-    // --- LABEL drag (individual label) ---
+    const target = ev.target as Element | null;
+    if (!target || !currentDiagram) return;
+
+    // --- LABEL drag ---
     const idxStr = target.getAttribute("data-label-index");
     if (idxStr) {
       const idx = Number(idxStr);
       if (!Number.isFinite(idx)) return;
 
-      const labels = diagram.labels ?? [];
+      const labels = currentDiagram.labels ?? [];
       if (!labels[idx]) return;
 
       svg.setPointerCapture(ev.pointerId);
@@ -409,130 +422,114 @@ function hookDragHandlers() {
     }
 
     // --- ENTITY drag ---
-    // 1) Prefer <g data-entity data-index> (if you add it in renderDiagram.ts)
-    // 2) Fallback: infer from raw SVG elements
-    const g = target.closest("[data-entity][data-index]") as SVGGElement | null;
-    let entity = g?.getAttribute("data-entity") ?? "";
-    let idx = Number(g?.getAttribute("data-index"));
+    const el = target.closest("line, polygon, rect, ellipse, circle") as SVGElement | null;
+    if (!el) return;
 
-    let dragTarget: SVGGElement | SVGElement | null = g;
+    let entity: EntityKind | null = null;
+    let idx = -1;
 
-    // Fallback: infer entity/index from raw SVG elements (segments are <line>, polygons are <polygon>, points are <circle>)
-    if (!dragTarget) {
-      const hit = target.closest("line, polygon, rect, ellipse, circle");
-      if (!hit) return;
+    const tag = el.tagName.toLowerCase();
 
-      if (hit instanceof SVGLineElement) {
-        entity = "segment";
-        const lines = Array.from(svg.querySelectorAll("line"));
-        idx = lines.indexOf(hit);
-        dragTarget = hit;
-      } else if (hit instanceof SVGPolygonElement) {
-        entity = "polygon";
-        const polys = Array.from(svg.querySelectorAll("polygon"));
-        idx = polys.indexOf(hit);
-        dragTarget = hit;
-      } else if (hit instanceof SVGRectElement) {
-        entity = "rect";
-        const rects = Array.from(svg.querySelectorAll("rect")).filter((r) => r.getAttribute("width") !== "100%");
-        idx = rects.indexOf(hit);
-        dragTarget = hit;
-      } else if (hit instanceof SVGEllipseElement) {
-        entity = "ellipse";
-        const els = Array.from(svg.querySelectorAll("ellipse"));
-        idx = els.indexOf(hit);
-        dragTarget = hit;
-      } else if (hit instanceof SVGCircleElement) {
-        const cx = Number(hit.getAttribute("cx"));
-        const cy = Number(hit.getAttribute("cy"));
-
-        // First try: match against spec.points by coordinate (robust)
-        const pts = diagram.points ?? [];
-        const pi = pts.findIndex((p) => samePt([cx, cy], p.at));
-
-        if (pi >= 0) {
-          entity = "point";
-          idx = pi;
-          dragTarget = hit;
-        } else {
-          // Otherwise treat as a circle "shape" from spec.circles
-          entity = "circle";
-          const cs = diagram.circles ?? [];
-          const ci = cs.findIndex((c) => samePt([cx, cy], [c.cx, c.cy]));
-
-          if (ci >= 0) {
-            idx = ci;
-            dragTarget = hit;
-          } else {
-            // Last resort: match by DOM order among circle shapes (excluding point markers)
-            const allCircles = Array.from(svg.querySelectorAll("circle"));
-            const shapeCircles = allCircles.filter((c) => {
-              const x = Number(c.getAttribute("cx"));
-              const y = Number(c.getAttribute("cy"));
-              return (diagram.points ?? []).findIndex((p) => samePt([x, y], p.at)) < 0;
-            });
-
-            idx = shapeCircles.indexOf(hit);
-            dragTarget = hit;
-          }
-        }
+    if (tag === "line") {
+      entity = "segment";
+      idx = Array.from(svg.querySelectorAll("line")).indexOf(el as SVGLineElement);
+    } else if (tag === "polygon") {
+      entity = "polygon";
+      idx = Array.from(svg.querySelectorAll("polygon")).indexOf(el as SVGPolygonElement);
+    } else if (tag === "rect") {
+      entity = "rect";
+      const rectEls = Array.from(svg.querySelectorAll("rect")).filter((r) => r.getAttribute("width") !== "100%");
+      idx = rectEls.indexOf(el as SVGRectElement);
+    } else if (tag === "ellipse") {
+      entity = "ellipse";
+      idx = Array.from(svg.querySelectorAll("ellipse")).indexOf(el as SVGEllipseElement);
+    } else if (tag === "circle") {
+      // Could be a point marker circle OR a "circle shape"
+      const cx = Number(el.getAttribute("cx"));
+      const cy = Number(el.getAttribute("cy"));
+      const pts = currentDiagram.points ?? [];
+      const pi = pts.findIndex((p) => samePt([cx, cy], p.at));
+      if (pi >= 0) {
+        entity = "point";
+        idx = pi;
+      } else {
+        entity = "circle";
+        // Find matching circle object by center (best effort)
+        const cs = currentDiagram.circles ?? [];
+        const ci = cs.findIndex((c) => samePt([cx, cy], [c.cx, c.cy]));
+        idx = ci;
       }
     }
 
-    if (!entity || !Number.isFinite(idx) || idx < 0 || !dragTarget) return;
+    if (!entity || idx < 0) return;
 
-    // Compute linked items:
-    // - segment: link endpoint points that coincide with endpoints
-    // - polygon: link vertex labels (A/B/C...) that are near vertices
-    let linkedPointIdx: number[] = [];
-    let linkedPointEls: SVGElement[] = [];
-    let linkedLabelIdx: number[] = [];
-    let linkedLabelEls: SVGTextElement[] = [];
+    const linkedPointIdx: number[] = [];
+    const linkedPointBases: Array<{ i: number; x: number; y: number; el: SVGCircleElement }> = [];
+    const linkedLabelIdx: number[] = [];
+    const linkedLabelBases: Array<{ i: number; x: number; y: number; el: SVGTextElement }> = [];
 
+    let baseSegment: DragEntity["baseSegment"];
+    let basePolygon: DragEntity["basePolygon"];
+
+    // Segment: link endpoint dots
     if (entity === "segment") {
-      const seg = diagram.segments?.[idx];
+      const seg = currentDiagram.segments?.[idx];
       if (seg) {
-        const pts = diagram.points ?? [];
+        baseSegment = { ax: seg.a[0], ay: seg.a[1], bx: seg.b[0], by: seg.b[1] };
+
+        const pts = currentDiagram.points ?? [];
         for (let i = 0; i < pts.length; i++) {
           const at = pts[i]?.at;
           if (!at) continue;
           if (samePt(at, seg.a) || samePt(at, seg.b)) linkedPointIdx.push(i);
         }
 
-        // Find the SVG circles that correspond to those points (by matching cx/cy)
-        const circles = Array.from(svg.querySelectorAll("circle"));
+        // Map to SVG circle elements currently rendered
+        const circleEls = Array.from(svg.querySelectorAll("circle"));
         for (const pi of linkedPointIdx) {
-          const at = diagram.points?.[pi]?.at;
+          const at = currentDiagram.points?.[pi]?.at;
           if (!at) continue;
           const [px, py] = at;
-          const el = circles.find((c) =>
-            samePt([Number(c.getAttribute("cx")), Number(c.getAttribute("cy"))], [px, py])
-          );
-          if (el) linkedPointEls.push(el);
+
+          const cEl = circleEls.find((c) => samePt([Number(c.getAttribute("cx")), Number(c.getAttribute("cy"))], [px, py]));
+          if (cEl) {
+            linkedPointBases.push({
+              i: pi,
+              x: Number(cEl.getAttribute("cx")),
+              y: Number(cEl.getAttribute("cy")),
+              el: cEl,
+            });
+          }
         }
       }
     }
 
+    // Polygon: link vertex labels (A,B,C...) near vertices
     if (entity === "polygon") {
-      const poly = diagram.polygons?.[idx];
+      const poly = currentDiagram.polygons?.[idx];
       if (poly && (poly.points?.length ?? 0) >= 3) {
-        const verts = poly.points;
+        basePolygon = { points: (poly.points ?? []).map(([x, y]) => [x, y]) as [number, number][] };
 
-        // Link labels that are single-letter capitals and near a vertex
-        const labels = diagram.labels ?? [];
+        const labels = currentDiagram.labels ?? [];
         for (let li = 0; li < labels.length; li++) {
           const lab = labels[li];
           if (!lab) continue;
           if (!/^[A-Z]$/.test(lab.text)) continue;
 
-          const vI = nearestVertexIndex({ x: lab.x, y: lab.y }, verts);
+          const vI = nearestVertexIndex({ x: lab.x, y: lab.y }, poly.points);
           if (vI >= 0) linkedLabelIdx.push(li);
         }
 
-        // Grab corresponding <text> nodes by data-label-index
         for (const li of linkedLabelIdx) {
-          const t = svg.querySelector(`text[data-label-index="${li}"]`) as SVGTextElement | null;
-          if (t) linkedLabelEls.push(t);
+          const tEl = svg.querySelector(`text[data-label-index="${li}"]`) as SVGTextElement | null;
+          if (tEl) {
+            linkedLabelBases.push({
+              i: li,
+              x: Number(tEl.getAttribute("x")),
+              y: Number(tEl.getAttribute("y")),
+              el: tEl,
+            });
+          }
         }
       }
     }
@@ -548,30 +545,32 @@ function hookDragHandlers() {
       startY: p0.y,
       dx: 0,
       dy: 0,
-      g: dragTarget,
+      el,
+      baseSegment,
+      basePolygon,
       linkedPointIdx,
-      linkedPointEls,
+      linkedPointBases,
       linkedLabelIdx,
-      linkedLabelEls,
+      linkedLabelBases,
     };
   };
 
   const onPointerMove = (ev: PointerEvent) => {
-    if (!drag) return;
+    if (!drag || !currentDiagram) return;
+    ev.preventDefault();
 
     const p = svgPoint(ev.clientX, ev.clientY);
 
-    // --- LABEL move (live update text attrs, no rerender) ---
+    // --- LABEL move ---
     if (drag.kind === "label") {
-      const labels = diagram.labels ?? [];
-      const label = labels[drag.idx];
+      const label = currentDiagram.labels?.[drag.idx];
       if (!label) return;
 
-      const newX = p.x - drag.offsetX;
-      const newY = p.y - drag.offsetY;
+      const nx = clamp(p.x - drag.offsetX, 0, W);
+      const ny = clamp(p.y - drag.offsetY, 0, H);
 
-      label.x = round(newX);
-      label.y = round(newY);
+      label.x = round(nx);
+      label.y = round(ny);
 
       const textEl = svg.querySelector(`text[data-label-index="${drag.idx}"]`) as SVGTextElement | null;
       if (textEl) {
@@ -581,83 +580,85 @@ function hookDragHandlers() {
       return;
     }
 
-    // --- ENTITY move (live move actual attributes + linked things) ---
+    // --- ENTITY move ---
     const dx = p.x - drag.startX;
     const dy = p.y - drag.startY;
     drag.dx = dx;
     drag.dy = dy;
 
     if (drag.entity === "segment") {
-      const line = drag.g as SVGLineElement;
-      const seg = diagram.segments?.[drag.idx];
-      if (!seg) return;
+      const line = drag.el as SVGLineElement;
+      if (!drag.baseSegment) return;
 
-      line.setAttribute("x1", String(seg.a[0] + dx));
-      line.setAttribute("y1", String(seg.a[1] + dy));
-      line.setAttribute("x2", String(seg.b[0] + dx));
-      line.setAttribute("y2", String(seg.b[1] + dy));
+      const ax = clamp(drag.baseSegment.ax + dx, 0, W);
+      const ay = clamp(drag.baseSegment.ay + dy, 0, H);
+      const bx = clamp(drag.baseSegment.bx + dx, 0, W);
+      const by = clamp(drag.baseSegment.by + dy, 0, H);
 
-      // Move endpoint point markers in sync (during drag)
-      for (const el of drag.linkedPointEls) {
-        const cx = Number(el.getAttribute("cx"));
-        const cy = Number(el.getAttribute("cy"));
-        el.setAttribute("cx", String(cx + dx));
-        el.setAttribute("cy", String(cy + dy));
+      line.setAttribute("x1", String(ax));
+      line.setAttribute("y1", String(ay));
+      line.setAttribute("x2", String(bx));
+      line.setAttribute("y2", String(by));
+
+      // move linked endpoint dots from BASE coords
+      for (const bp of drag.linkedPointBases) {
+        const cx = clamp(bp.x + dx, 0, W);
+        const cy = clamp(bp.y + dy, 0, H);
+        bp.el.setAttribute("cx", String(cx));
+        bp.el.setAttribute("cy", String(cy));
       }
       return;
     }
 
     if (drag.entity === "polygon") {
-      const polyEl = drag.g as SVGPolygonElement;
-      const poly = diagram.polygons?.[drag.idx];
-      if (!poly) return;
+      const polyEl = drag.el as SVGPolygonElement;
+      if (!drag.basePolygon) return;
 
-      const pts = (poly.points ?? []).map(([x, y]) => `${x + dx},${y + dy}`).join(" ");
-      polyEl.setAttribute("points", pts);
+      const moved = drag.basePolygon.points.map(([x, y]) => [clamp(x + dx, 0, W), clamp(y + dy, 0, H)] as [number, number]);
+      polyEl.setAttribute("points", moved.map(([x, y]) => `${x},${y}`).join(" "));
 
-      // Move vertex labels in sync (during drag)
-      for (const t of drag.linkedLabelEls) {
-        const lx = Number(t.getAttribute("x"));
-        const ly = Number(t.getAttribute("y"));
-        t.setAttribute("x", String(lx + dx));
-        t.setAttribute("y", String(ly + dy));
+      for (const bl of drag.linkedLabelBases) {
+        const lx = clamp(bl.x + dx, 0, W);
+        const ly = clamp(bl.y + dy, 0, H);
+        bl.el.setAttribute("x", String(lx));
+        bl.el.setAttribute("y", String(ly));
       }
       return;
     }
 
     if (drag.entity === "rect") {
-      const el = drag.g as SVGRectElement;
-      const r = diagram.rects?.[drag.idx];
+      const r = currentDiagram.rects?.[drag.idx];
+      const el = drag.el as SVGRectElement;
       if (!r) return;
-      el.setAttribute("x", String(r.x + dx));
-      el.setAttribute("y", String(r.y + dy));
+      el.setAttribute("x", String(clamp(r.x + dx, 0, W)));
+      el.setAttribute("y", String(clamp(r.y + dy, 0, H)));
       return;
     }
 
     if (drag.entity === "circle") {
-      const el = drag.g as SVGCircleElement;
-      const c = diagram.circles?.[drag.idx];
+      const c = currentDiagram.circles?.[drag.idx];
+      const el = drag.el as SVGCircleElement;
       if (!c) return;
-      el.setAttribute("cx", String(c.cx + dx));
-      el.setAttribute("cy", String(c.cy + dy));
+      el.setAttribute("cx", String(clamp(c.cx + dx, 0, W)));
+      el.setAttribute("cy", String(clamp(c.cy + dy, 0, H)));
       return;
     }
 
     if (drag.entity === "ellipse") {
-      const el = drag.g as SVGEllipseElement;
-      const e = diagram.ellipses?.[drag.idx];
+      const e = currentDiagram.ellipses?.[drag.idx];
+      const el = drag.el as SVGEllipseElement;
       if (!e) return;
-      el.setAttribute("cx", String(e.cx + dx));
-      el.setAttribute("cy", String(e.cy + dy));
+      el.setAttribute("cx", String(clamp(e.cx + dx, 0, W)));
+      el.setAttribute("cy", String(clamp(e.cy + dy, 0, H)));
       return;
     }
 
     if (drag.entity === "point") {
-      const el = drag.g as SVGCircleElement;
-      const pt = diagram.points?.[drag.idx];
+      const pt = currentDiagram.points?.[drag.idx];
+      const el = drag.el as SVGCircleElement;
       if (!pt) return;
-      el.setAttribute("cx", String(pt.at[0] + dx));
-      el.setAttribute("cy", String(pt.at[1] + dy));
+      el.setAttribute("cx", String(clamp(pt.at[0] + dx, 0, W)));
+      el.setAttribute("cy", String(clamp(pt.at[1] + dy, 0, H)));
       return;
     }
   };
@@ -671,13 +672,9 @@ function hookDragHandlers() {
       // ignore
     }
 
-    // Bake entity delta into spec, then rerender so DOM goes back to clean canonical state
-    if (drag.kind === "entity") {
-      const { entity, idx, dx, dy, linkedPointIdx, linkedLabelIdx } = drag;
-      applyDeltaToSpec(entity, idx, dx, dy, linkedPointIdx, linkedLabelIdx);
-
-      // currentDiagram still points to this same object; but be safe anyway
-      if (currentDiagram) mountDiagram(currentDiagram);
+    if (drag.kind === "entity" && currentDiagram) {
+      applyDeltaToSpec(drag.entity, drag.idx, drag.dx, drag.dy, drag.linkedPointIdx, drag.linkedLabelIdx);
+      mountDiagram(currentDiagram);
     }
 
     drag = null;
@@ -689,6 +686,9 @@ function hookDragHandlers() {
   svg.addEventListener("pointercancel", onPointerUp);
   svg.addEventListener("pointerleave", onPointerUp);
 }
+
+
+
 
 // ---------- API ----------
 async function generateDiagram(description: string): Promise<DiagramSpec> {
