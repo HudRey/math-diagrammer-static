@@ -1,4 +1,9 @@
+export type DiagramMode = "geometry2d" | "plane2d" | "solid3d";
+
 export type DiagramSpec = {
+  // NEW: mode (optional, defaults to "geometry2d")
+  mode?: DiagramMode;
+
   canvas: {
     width: number;
     height: number;
@@ -96,6 +101,26 @@ function s(v: unknown, fallback: string) {
   return typeof v === "string" && v.trim() ? v : fallback;
 }
 
+function isDiagramMode(v: unknown): v is DiagramMode {
+  return v === "geometry2d" || v === "plane2d" || v === "solid3d";
+}
+
+function placeholderSVG(w: number, h: number, bg: string, msg: string) {
+  const safeMsg = esc(msg);
+  return `
+<svg id="diagramSvg" xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+  <rect width="100%" height="100%" fill="${bg}" />
+  <rect x="12" y="12" width="${Math.max(0, w - 24)}" height="${Math.max(
+    0,
+    h - 24
+  )}" fill="none" stroke="#000000" stroke-width="2" stroke-dasharray="6 6" />
+  <text x="${w / 2}" y="${h / 2}" text-anchor="middle" dominant-baseline="middle"
+        font-family="Arial, system-ui, sans-serif" font-size="18" fill="#000000">
+    ${safeMsg}
+  </text>
+</svg>`.trim();
+}
+
 /**
  * validateSpec()
  * - throws if the spec is invalid
@@ -115,6 +140,14 @@ export function validateSpec(obj: any): DiagramSpec {
   if (w < 100 || h < 100) throw new Error("Canvas is too small (min ~100×100).");
   if (w > 4000 || h > 4000) throw new Error("Canvas is too large (max ~4000×4000).");
 
+  // NEW: normalize/validate mode (backwards compatible)
+  const mode: DiagramMode =
+    obj.mode === undefined ? "geometry2d" : isDiagramMode(obj.mode) ? obj.mode : (() => {
+      throw new Error(
+        `Invalid mode: ${String(obj.mode)}. Expected "geometry2d" | "plane2d" | "solid3d".`
+      );
+    })();
+
   // Normalize defaults
   const defaults = obj.defaults ?? {};
   const normDefaults: DiagramSpec["defaults"] = {
@@ -130,6 +163,7 @@ export function validateSpec(obj: any): DiagramSpec {
   const asArray = <T>(v: any): T[] => (Array.isArray(v) ? v : []);
 
   const spec: DiagramSpec = {
+    mode, // NEW
     canvas: { width: w, height: h, bg },
     defaults: normDefaults,
 
@@ -160,6 +194,12 @@ export function renderDiagramSVG(spec: DiagramSpec) {
   const W = n(spec.canvas.width, 900);
   const H = n(spec.canvas.height, 450);
   const bg = s(spec.canvas.bg, "#ffffff");
+
+  // NEW: mode gate
+  const mode: DiagramMode = spec.mode ?? "geometry2d";
+  if (mode !== "geometry2d") {
+    return placeholderSVG(W, H, bg, `${mode} mode is not implemented yet`);
+  }
 
   const defStroke = s(spec.defaults?.stroke, "#000000");
   const defStrokeWidth = n(spec.defaults?.strokeWidth, 3);
@@ -284,4 +324,3 @@ export function renderDiagramSVG(spec: DiagramSpec) {
   ${labels}
 </svg>`.trim();
 }
-
