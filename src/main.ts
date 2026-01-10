@@ -18,31 +18,83 @@ const $ = <T extends HTMLElement>(sel: string) => {
 const app = $("#app");
 app.innerHTML = `
   <div class="layout">
-    <aside class="panel">
+    <div class="panel">
       <div class="title">Math Diagram Renderer</div>
-      <div class="sub">Describe your diagram → generate → drag → download.</div>
+      <div class="sub">Describe your diagram → generate → drag labels → download.</div>
 
       <label>Diagram description
-        <textarea id="desc" placeholder="Example: Draw a rectangle..."></textarea>
+        <textarea id="desc" placeholder="Example: Draw a rectangle for a perimeter problem. Label top = 12 cm, left = 7 cm, right = 7 cm, bottom = x cm."></textarea>
       </label>
 
-      <div class="row">
-        <button id="generateBtn">Generate</button>
-        <button id="downloadBtn">Download SVG</button>
+      <details open>
+        <summary>Style</summary>
+        <div class="sectionBody">
+          <div class="row2">
+            <div>
+              <label>Outline</label>
+              <input id="stroke" type="color" value="#000000" />
+            </div>
+            <div>
+              <label>Fill</label>
+              <input id="fill" type="color" value="#ffffff" />
+            </div>
+          </div>
+
+          <div class="row2">
+            <div>
+              <label>Annotation color</label>
+              <input id="labelColor" type="color" value="#000000" />
+            </div>
+            <div>
+              <label>Annotation font size</label>
+              <input id="labelFontSize" type="number" min="10" max="64" step="1" value="22" />
+            </div>
+          </div>
+
+          <button id="applyStyle">Apply style to current diagram</button>
+        </div>
+      </details>
+
+      <div class="row2">
+        <button id="generate">Generate</button>
+        <button id="example">Load example</button>
       </div>
 
-      <!-- JSON goes at the bottom, collapsed by default -->
-      <details id="jsonDetails" class="jsonDetails">
-        <summary>JSON (click to expand)</summary>
-        <pre id="jsonOut" class="jsonOut"></pre>
-      </details>
-    </aside>
+      <div id="status" class="status"></div>
+      <div id="err" class="err"></div>
 
-    <main class="stage">
-      <div id="diagramWrap" class="diagramWrap"></div>
-    </main>
+      <!-- Downloads stay visible (NOT after debug) -->
+      <div class="row2">
+        <button id="downloadSvg">Download SVG</button>
+        <button id="downloadPng">Download PNG</button>
+      </div>
+
+      <!-- Debug at bottom, collapsed by default -->
+      <details class="debug">
+        <summary>Debug</summary>
+        <div class="debugBody">
+          <div class="debugLabel">Rendered (normalized) DiagramSpec</div>
+          <pre id="debugJson" class="debugJson"></pre>
+          <div class="debugLabel">Raw server response</div>
+          <pre id="debugRaw" class="debugJson"></pre>
+        </div>
+      </details>
+    </div>
+
+    <div class="stage">
+      <div id="svgHost" class="svgHost"></div>
+    </div>
   </div>
 `;
+try {
+  // your existing setup code that adds event listeners
+  // (the code that does: $("#generate"), $("#downloadPng"), etc.)
+} catch (e) {
+  console.error(e);
+  const err = document.querySelector<HTMLDivElement>("#err");
+  if (err) err.textContent = String(e);
+}
+
 
 
 // Debug sanity checks (these execute as real JS, not HTML)
