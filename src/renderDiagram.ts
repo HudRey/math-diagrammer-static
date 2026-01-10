@@ -155,9 +155,9 @@ export function validateSpec(obj: any): DiagramSpec {
   return spec;
 }
 
-export function renderDiagramSVG(specRaw: DiagramSpec) {
-  // Ensure normalized values (safe even if spec already normalized)
-  const spec = validateSpec(specRaw);
+export function renderDiagramSVG(spec: DiagramSpec) {
+  // spec is assumed to be validated/normalized at the boundary
+
 
   const W = n(spec.canvas.width, 900);
   const H = n(spec.canvas.height, 450);

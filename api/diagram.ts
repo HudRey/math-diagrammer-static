@@ -55,7 +55,8 @@ const DIAGRAM_SCHEMA = {
             rx: { type: "number" },
             ry: { type: "number" },
           },
-          required: ["x", "y", "w", "h", "stroke", "strokeWidth", "fill", "rx", "ry"],
+          // rx/ry optional (server will default them to 0)
+          required: ["x", "y", "w", "h", "stroke", "strokeWidth", "fill"],
         },
       },
 
@@ -167,33 +168,50 @@ const DIAGRAM_SCHEMA = {
     },
 
     // REQUIRED must include every top-level key in properties
-    required: [
-      "canvas",
-      "defaults",
-      "rects",
-      "circles",
-      "ellipses",
-      "polygons",
-      "segments",
-      "points",
-      "labels",
-    ],
+    required: ["canvas", "defaults", "rects", "circles", "ellipses", "polygons", "segments", "points", "labels"],
   },
 };
 
 function systemPrompt() {
   return `
-You output diagram JSON that matches the schema exactly.
+You are a diagram JSON generator. Output MUST match the provided JSON schema EXACTLY.
 
-Hard rules:
-- Always output ALL top-level keys: canvas, defaults, rects, circles, ellipses, polygons, segments, points, labels.
-  If a section is unused, output it as an empty array [].
-- canvas is 900x450 with bg "#ffffff"
-- defaults.stroke "#000000" and defaults.labelColor "#000000"
-- Keep shapes/labels at least 40px from edges.
-- Labels readable and near intended objects.
-- Do not invent side lengths unless the user asks.
-- Do not include extra keys.
+Non-negotiable rules:
+- Output ONLY JSON. No markdown. No commentary.
+- Include ALL top-level keys: canvas, defaults, rects, circles, ellipses, polygons, segments, points, labels.
+  If unused, set them to empty arrays [].
+- canvas MUST be: width=900, height=450, bg="#ffffff".
+- defaults MUST be present and readable:
+  stroke="#000000", strokeWidth=3, fill="none", fontFamily="Arial, system-ui, sans-serif", fontSize=18, labelColor="#000000".
+- Keep ALL geometry and labels at least 40px from the edges (the server will clamp, but try to be correct).
+- Use simple, clean diagrams that print well. Avoid clutter.
+- Do NOT invent numeric values the user did not provide.
+  - If the user says "x" or "unknown", show that exact text in a label.
+  - If no numbers are given, use generic labels (like "x", "y", "?" or names like "A", "B") rather than making up measurements.
+- Prefer rectangles/segments/labels for Pre-Algebra diagrams unless the user explicitly asks for something else.
+
+Internal steps (do not output these steps):
+1) Identify the primary diagram type (rectangle, polygon, segment diagram, coordinate plot, etc.).
+2) Choose minimal shapes to represent it clearly.
+3) Place labels near relevant sides/points.
+4) Emit JSON matching schema.
+
+Few-shot examples (learn the pattern and apply it):
+
+EXAMPLE 1:
+User: Draw a rectangle. Label top = 12 cm, left = 7 cm, right = 7 cm, bottom = x cm.
+Output:
+{"canvas":{"width":900,"height":450,"bg":"#ffffff"},"defaults":{"stroke":"#000000","strokeWidth":3,"fill":"none","fontFamily":"Arial, system-ui, sans-serif","fontSize":18,"labelColor":"#000000"},"rects":[{"x":250,"y":120,"w":400,"h":220,"stroke":"#000000","strokeWidth":3,"fill":"none","rx":0,"ry":0}],"circles":[],"ellipses":[],"polygons":[],"segments":[],"points":[],"labels":[{"text":"12 cm","x":450,"y":95,"color":"#000000","fontSize":22,"bold":false},{"text":"7 cm","x":225,"y":230,"color":"#000000","fontSize":22,"bold":false},{"text":"7 cm","x":675,"y":230,"color":"#000000","fontSize":22,"bold":false},{"text":"x cm","x":450,"y":365,"color":"#000000","fontSize":22,"bold":false}]}
+
+EXAMPLE 2:
+User: Plot points A(-2,3) and B(4,-1). Draw segment AB.
+Output:
+{"canvas":{"width":900,"height":450,"bg":"#ffffff"},"defaults":{"stroke":"#000000","strokeWidth":3,"fill":"none","fontFamily":"Arial, system-ui, sans-serif","fontSize":18,"labelColor":"#000000"},"rects":[],"circles":[],"ellipses":[],"polygons":[],"segments":[{"a":[350,150],"b":[600,300],"stroke":"#000000","strokeWidth":3}],"points":[{"at":[350,150],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[600,300],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1}],"labels":[{"text":"A(-2, 3)","x":320,"y":135,"color":"#000000","fontSize":18,"bold":false},{"text":"B(4, -1)","x":630,"y":315,"color":"#000000","fontSize":18,"bold":false}]}
+
+EXAMPLE 3:
+User: Draw a triangle with vertices A, B, and C.
+Output:
+{"canvas":{"width":900,"height":450,"bg":"#ffffff"},"defaults":{"stroke":"#000000","strokeWidth":3,"fill":"none","fontFamily":"Arial, system-ui, sans-serif","fontSize":18,"labelColor":"#000000"},"rects":[],"circles":[],"ellipses":[],"polygons":[{"points":[[320,320],[600,320],[460,140]],"stroke":"#000000","strokeWidth":3,"fill":"none"}],"segments":[],"points":[{"at":[320,320],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[600,320],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[460,140],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1}],"labels":[{"text":"A","x":300,"y":335,"color":"#000000","fontSize":18,"bold":true},{"text":"B","x":620,"y":335,"color":"#000000","fontSize":18,"bold":true},{"text":"C","x":460,"y":115,"color":"#000000","fontSize":18,"bold":true}]}
 `.trim();
 }
 
@@ -229,7 +247,7 @@ function normalizeAndClamp(diagram: any) {
   diagram.canvas.height = CANVAS_H;
   diagram.canvas.bg = "#ffffff";
 
-  // Defaults: ensure sane baseline (model will already include due to schema, but keep safe)
+  // Defaults: ensure sane baseline
   diagram.defaults = diagram.defaults ?? {};
   diagram.defaults.stroke = str(diagram.defaults.stroke, "#000000");
   diagram.defaults.strokeWidth = num(diagram.defaults.strokeWidth, 3);
@@ -243,14 +261,17 @@ function normalizeAndClamp(diagram: any) {
   const xHi = CANVAS_W - MARGIN;
   const yHi = CANVAS_H - MARGIN;
 
-  // Rects: clamp x/y and size to keep within margins
+  // Rects: clamp size and position to remain inside margins
   diagram.rects = arr<any>(diagram.rects).map((r) => {
-    const w = num(r.w, 0);
-    const h = num(r.h, 0);
+    let w = Math.max(0, num(r.w, 0));
+    let h = Math.max(0, num(r.h, 0));
 
-    // clamp top-left so bottom-right stays inside
-    const x = clamp(num(r.x, 0), xLo, Math.max(xLo, xHi - w));
-    const y = clamp(num(r.y, 0), yLo, Math.max(yLo, yHi - h));
+    // Clamp size so it can fit inside margins at all
+    w = Math.min(w, xHi - xLo);
+    h = Math.min(h, yHi - yLo);
+
+    const x = clamp(num(r.x, 0), xLo, xHi - w);
+    const y = clamp(num(r.y, 0), yLo, yHi - h);
 
     return {
       ...r,
@@ -306,7 +327,7 @@ function normalizeAndClamp(diagram: any) {
     return { ...p, at: [px, py] };
   });
 
-  // Labels: clamp x/y (keep text inside page-ish)
+  // Labels: clamp x/y
   diagram.labels = arr<any>(diagram.labels).map((l) => {
     const x = clamp(num(l.x, 0), xLo, xHi);
     const y = clamp(num(l.y, 0), yLo, yHi);
@@ -320,6 +341,15 @@ function normalizeAndClamp(diagram: any) {
       bold: !!l.bold,
     };
   });
+
+  // Ensure arrays exist (defensive)
+  diagram.rects ??= [];
+  diagram.circles ??= [];
+  diagram.ellipses ??= [];
+  diagram.polygons ??= [];
+  diagram.segments ??= [];
+  diagram.points ??= [];
+  diagram.labels ??= [];
 
   return diagram;
 }
@@ -352,7 +382,8 @@ export default async function handler(req: any, res: any) {
           schema: DIAGRAM_SCHEMA.schema,
         },
       },
-      max_output_tokens: 1200,
+      temperature: 0.2,
+      max_output_tokens: 900,
     });
 
     const jsonText = resp.output_text;
@@ -368,7 +399,6 @@ export default async function handler(req: any, res: any) {
       res.status(500).json({
         error: "Failed to parse model JSON.",
         details: parseErr?.message ?? String(parseErr),
-        // helpful for debugging; keep small
         snippet: String(jsonText).slice(0, 300),
       });
       return;

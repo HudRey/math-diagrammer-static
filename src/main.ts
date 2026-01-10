@@ -243,85 +243,85 @@ function downloadPNGFromSVG(svgString: string, filename: string) {
 
 // ---------- Dragging labels ----------
 function hookDragHandlers() {
-  const svg = document.getElementById("diagramSvg") as SVGSVGElement | null;
-  if (!svg || !currentDiagram) return;
+const svgOld = document.getElementById("diagramSvg") as SVGSVGElement | null;
+if (!svgOld || !currentDiagram) return;
 
-  let draggingIdx: number | null = null;
-  let offsetX = 0;
-  let offsetY = 0;
+// Clear previous handlers by cloning node (cheap and effective)
+const svg = svgOld.cloneNode(true) as SVGSVGElement;
+svgOld.replaceWith(svg);
 
-  const svgPoint = (clientX: number, clientY: number) => {
-    const pt = svg.createSVGPoint();
-    pt.x = clientX;
-    pt.y = clientY;
-    const ctm = svg.getScreenCTM();
-    if (!ctm) return { x: clientX, y: clientY };
-    const inv = ctm.inverse();
-    const p = pt.matrixTransform(inv);
-    return { x: p.x, y: p.y };
-  };
+let draggingIdx: number | null = null;
+let offsetX = 0;
+let offsetY = 0;
 
-  const onPointerDown = (ev: PointerEvent) => {
-    const target = ev.target as Element | null;
-    if (!target) return;
+const svgPoint = (clientX: number, clientY: number) => {
+  const pt = svg.createSVGPoint();
+  pt.x = clientX;
+  pt.y = clientY;
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return { x: clientX, y: clientY };
+  const inv = ctm.inverse();
+  const p = pt.matrixTransform(inv);
+  return { x: p.x, y: p.y };
+};
 
-    const idxStr = target.getAttribute("data-label-index");
-    if (!idxStr) return;
+const onPointerDown = (ev: PointerEvent) => {
+  const target = ev.target as Element | null;
+  if (!target) return;
 
-    const idx = Number(idxStr);
-    if (!Number.isFinite(idx)) return;
+  const idxStr = target.getAttribute("data-label-index");
+  if (!idxStr) return;
 
-    const labels = currentDiagram?.labels ?? [];
-    if (!labels[idx]) return;
+  const idx = Number(idxStr);
+  if (!Number.isFinite(idx)) return;
 
-    draggingIdx = idx;
-    svg.setPointerCapture(ev.pointerId);
+  const labels = currentDiagram?.labels ?? [];
+  if (!labels[idx]) return;
 
-    const p = svgPoint(ev.clientX, ev.clientY);
-    offsetX = p.x - labels[idx].x;
-    offsetY = p.y - labels[idx].y;
-  };
+  draggingIdx = idx;
+  svg.setPointerCapture(ev.pointerId);
 
-  const onPointerMove = (ev: PointerEvent) => {
-    if (draggingIdx === null || !currentDiagram) return;
+  const p = svgPoint(ev.clientX, ev.clientY);
+  offsetX = p.x - labels[idx].x;
+  offsetY = p.y - labels[idx].y;
+};
 
-    const labels = currentDiagram.labels ?? [];
-    const label = labels[draggingIdx];
-    if (!label) return;
+const onPointerMove = (ev: PointerEvent) => {
+  if (draggingIdx === null || !currentDiagram) return;
 
-    const p = svgPoint(ev.clientX, ev.clientY);
-    const newX = p.x - offsetX;
-    const newY = p.y - offsetY;
+  const labels = currentDiagram.labels ?? [];
+  const label = labels[draggingIdx];
+  if (!label) return;
 
-    label.x = Math.round(newX * 100) / 100;
-    label.y = Math.round(newY * 100) / 100;
+  const p = svgPoint(ev.clientX, ev.clientY);
+  const newX = p.x - offsetX;
+  const newY = p.y - offsetY;
 
-    const textEl = svg.querySelector(`[data-label-index="${draggingIdx}"]`) as SVGTextElement | null;
-    if (textEl) {
-      textEl.setAttribute("x", String(label.x));
-      textEl.setAttribute("y", String(label.y));
-    }
-  };
+  label.x = Math.round(newX * 100) / 100;
+  label.y = Math.round(newY * 100) / 100;
 
-  const onPointerUp = (ev: PointerEvent) => {
-    if (draggingIdx === null) return;
-    draggingIdx = null;
-    try {
-      svg.releasePointerCapture(ev.pointerId);
-    } catch {
-      // ignore
-    }
-  };
+  const textEl = svg.querySelector(`[data-label-index="${draggingIdx}"]`) as SVGTextElement | null;
+  if (textEl) {
+    textEl.setAttribute("x", String(label.x));
+    textEl.setAttribute("y", String(label.y));
+  }
+};
 
-  // Clear previous handlers by cloning node (cheap and effective)
-  const fresh = svg.cloneNode(true) as SVGSVGElement;
-  svg.replaceWith(fresh);
+const onPointerUp = (ev: PointerEvent) => {
+  if (draggingIdx === null) return;
+  draggingIdx = null;
+  try {
+    svg.releasePointerCapture(ev.pointerId);
+  } catch {
+    // ignore
+  }
+};
 
-  fresh.addEventListener("pointerdown", onPointerDown);
-  fresh.addEventListener("pointermove", onPointerMove);
-  fresh.addEventListener("pointerup", onPointerUp);
-  fresh.addEventListener("pointercancel", onPointerUp);
-  fresh.addEventListener("pointerleave", onPointerUp);
+svg.addEventListener("pointerdown", onPointerDown);
+svg.addEventListener("pointermove", onPointerMove);
+svg.addEventListener("pointerup", onPointerUp);
+svg.addEventListener("pointercancel", onPointerUp);
+svg.addEventListener("pointerleave", onPointerUp);
 }
 
 // ---------- API ----------
