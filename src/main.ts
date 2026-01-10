@@ -8,7 +8,12 @@ type StylePrefs = {
   labelFontSize: number; // annotations font size
 };
 
-const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
+// Strict selector helper (prevents silent null bugs)
+const $ = <T extends HTMLElement>(sel: string) => {
+  const el = document.querySelector(sel);
+  if (!el) throw new Error(`Missing element: ${sel}`);
+  return el as T;
+};
 
 const app = $("#app");
 app.innerHTML = `
@@ -56,24 +61,22 @@ app.innerHTML = `
       </div>
 
       <div id="status" class="status"></div>
-<div id="err" class="err"></div>
+      <div id="err" class="err"></div>
 
-<details class="debug">
-  <summary>Debug</summary>
-  <div class="debugBody">
-    <div class="debugLabel">Rendered (normalized) DiagramSpec</div>
-    <pre id="debugJson" class="debugJson"></pre>
-    <div class="debugLabel">Raw server response</div>
-<pre id="debugRaw" class="debugJson"></pre>
+      <details class="debug" open>
+        <summary>Debug</summary>
+        <div class="debugBody">
+          <div class="debugLabel">Rendered (normalized) DiagramSpec</div>
+          <pre id="debugJson" class="debugJson"></pre>
+          <div class="debugLabel">Raw server response</div>
+          <pre id="debugRaw" class="debugJson"></pre>
+        </div>
+      </details>
 
-  </div>
-</details>
-
-<div class="row2">
-  <button id="downloadSvg">Download SVG</button>
-  <button id="downloadPng">Download PNG</button>
-</div>
-
+      <div class="row2">
+        <button id="downloadSvg">Download SVG</button>
+        <button id="downloadPng">Download PNG</button>
+      </div>
     </div>
 
     <div class="stage">
@@ -82,10 +85,16 @@ app.innerHTML = `
   </div>
 `;
 
+// Debug sanity checks (these execute as real JS, not HTML)
+console.log("app injected:", !!document.querySelector(".layout"));
+console.log("debugJson exists:", !!document.getElementById("debugJson"));
+console.log("debugRaw exists:", !!document.getElementById("debugRaw"));
+
 const descEl = $("#desc") as HTMLTextAreaElement;
 const statusEl = $("#status") as HTMLDivElement;
 const errEl = $("#err") as HTMLDivElement;
 const svgHost = $("#svgHost") as HTMLDivElement;
+
 const debugJsonEl = document.getElementById("debugJson") as HTMLPreElement | null;
 const debugRawEl = document.getElementById("debugRaw") as HTMLPreElement | null;
 
@@ -126,7 +135,6 @@ function getStylePrefs(): StylePrefs {
 function applyStyle(diagram: DiagramSpec, prefs: StylePrefs): DiagramSpec {
   const d: DiagramSpec = structuredClone(diagram);
 
-  // Defaults
   d.defaults = d.defaults ?? {
     stroke: "#000000",
     strokeWidth: 3,
@@ -141,37 +149,12 @@ function applyStyle(diagram: DiagramSpec, prefs: StylePrefs): DiagramSpec {
   d.defaults.labelColor = prefs.labelColor;
   d.defaults.fontSize = prefs.labelFontSize;
 
-  // Shapes (optional arrays)
-  d.rects = (d.rects ?? []).map((r) => ({
-    ...r,
-    stroke: prefs.stroke,
-    fill: prefs.fill,
-  }));
+  d.rects = (d.rects ?? []).map((r) => ({ ...r, stroke: prefs.stroke, fill: prefs.fill }));
+  d.circles = (d.circles ?? []).map((c) => ({ ...c, stroke: prefs.stroke, fill: prefs.fill }));
+  d.ellipses = (d.ellipses ?? []).map((e) => ({ ...e, stroke: prefs.stroke, fill: prefs.fill }));
+  d.polygons = (d.polygons ?? []).map((p) => ({ ...p, stroke: prefs.stroke, fill: prefs.fill }));
+  d.segments = (d.segments ?? []).map((seg) => ({ ...seg, stroke: prefs.stroke }));
 
-  d.circles = (d.circles ?? []).map((c) => ({
-    ...c,
-    stroke: prefs.stroke,
-    fill: prefs.fill,
-  }));
-
-  d.ellipses = (d.ellipses ?? []).map((e) => ({
-    ...e,
-    stroke: prefs.stroke,
-    fill: prefs.fill,
-  }));
-
-  d.polygons = (d.polygons ?? []).map((p) => ({
-    ...p,
-    stroke: prefs.stroke,
-    fill: prefs.fill,
-  }));
-
-  d.segments = (d.segments ?? []).map((seg) => ({
-    ...seg,
-    stroke: prefs.stroke,
-  }));
-
-  // Labels
   d.labels = (d.labels ?? []).map((l) => ({
     ...l,
     color: prefs.labelColor,
@@ -183,22 +166,18 @@ function applyStyle(diagram: DiagramSpec, prefs: StylePrefs): DiagramSpec {
 
 // ---------- Rendering ----------
 function mountDiagram(diagram: DiagramSpec) {
-  // Normalize/validate once at the boundary so state is always safe
+  console.log("mountDiagram called");
+
   const safe = validateSpec(diagram);
   currentDiagram = safe;
 
-  // DEBUG: show exactly what we're rendering
-  if (debugJsonEl) {
-    debugJsonEl.textContent = JSON.stringify(safe, null, 2);
-  }
+  if (debugJsonEl) debugJsonEl.textContent = JSON.stringify(safe, null, 2);
 
-  // Renderer includes id="diagramSvg"
   const svgString = renderDiagramSVG(safe);
   svgHost.innerHTML = svgString;
 
   hookDragHandlers();
 }
-
 
 function downloadText(filename: string, data: string, mime: string) {
   const blob = new Blob([data], { type: mime });
@@ -234,23 +213,20 @@ function downloadPNGFromSVG(svgString: string, filename: string) {
 
     ctx.drawImage(img, 0, 0);
 
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          setError("Failed to create PNG blob.");
-          URL.revokeObjectURL(url);
-          return;
-        }
-        const a = document.createElement("a");
-        const pngUrl = URL.createObjectURL(blob);
-        a.href = pngUrl;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(pngUrl);
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        setError("Failed to create PNG blob.");
         URL.revokeObjectURL(url);
-      },
-      "image/png"
-    );
+        return;
+      }
+      const a = document.createElement("a");
+      const pngUrl = URL.createObjectURL(blob);
+      a.href = pngUrl;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(pngUrl);
+      URL.revokeObjectURL(url);
+    }, "image/png");
   };
 
   img.onerror = () => {
@@ -263,85 +239,85 @@ function downloadPNGFromSVG(svgString: string, filename: string) {
 
 // ---------- Dragging labels ----------
 function hookDragHandlers() {
-const svgOld = document.getElementById("diagramSvg") as SVGSVGElement | null;
-if (!svgOld || !currentDiagram) return;
+  const svgOld = document.getElementById("diagramSvg") as SVGSVGElement | null;
+  if (!svgOld || !currentDiagram) return;
 
-// Clear previous handlers by cloning node (cheap and effective)
-const svg = svgOld.cloneNode(true) as SVGSVGElement;
-svgOld.replaceWith(svg);
+  // Reset handlers by cloning
+  const svg = svgOld.cloneNode(true) as SVGSVGElement;
+  svgOld.replaceWith(svg);
 
-let draggingIdx: number | null = null;
-let offsetX = 0;
-let offsetY = 0;
+  let draggingIdx: number | null = null;
+  let offsetX = 0;
+  let offsetY = 0;
 
-const svgPoint = (clientX: number, clientY: number) => {
-  const pt = svg.createSVGPoint();
-  pt.x = clientX;
-  pt.y = clientY;
-  const ctm = svg.getScreenCTM();
-  if (!ctm) return { x: clientX, y: clientY };
-  const inv = ctm.inverse();
-  const p = pt.matrixTransform(inv);
-  return { x: p.x, y: p.y };
-};
+  const svgPoint = (clientX: number, clientY: number) => {
+    const pt = svg.createSVGPoint();
+    pt.x = clientX;
+    pt.y = clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: clientX, y: clientY };
+    const inv = ctm.inverse();
+    const p = pt.matrixTransform(inv);
+    return { x: p.x, y: p.y };
+  };
 
-const onPointerDown = (ev: PointerEvent) => {
-  const target = ev.target as Element | null;
-  if (!target) return;
+  const onPointerDown = (ev: PointerEvent) => {
+    const target = ev.target as Element | null;
+    if (!target) return;
 
-  const idxStr = target.getAttribute("data-label-index");
-  if (!idxStr) return;
+    const idxStr = target.getAttribute("data-label-index");
+    if (!idxStr) return;
 
-  const idx = Number(idxStr);
-  if (!Number.isFinite(idx)) return;
+    const idx = Number(idxStr);
+    if (!Number.isFinite(idx)) return;
 
-  const labels = currentDiagram?.labels ?? [];
-  if (!labels[idx]) return;
+    const labels = currentDiagram?.labels ?? [];
+    if (!labels[idx]) return;
 
-  draggingIdx = idx;
-  svg.setPointerCapture(ev.pointerId);
+    draggingIdx = idx;
+    svg.setPointerCapture(ev.pointerId);
 
-  const p = svgPoint(ev.clientX, ev.clientY);
-  offsetX = p.x - labels[idx].x;
-  offsetY = p.y - labels[idx].y;
-};
+    const p = svgPoint(ev.clientX, ev.clientY);
+    offsetX = p.x - labels[idx].x;
+    offsetY = p.y - labels[idx].y;
+  };
 
-const onPointerMove = (ev: PointerEvent) => {
-  if (draggingIdx === null || !currentDiagram) return;
+  const onPointerMove = (ev: PointerEvent) => {
+    if (draggingIdx === null || !currentDiagram) return;
 
-  const labels = currentDiagram.labels ?? [];
-  const label = labels[draggingIdx];
-  if (!label) return;
+    const labels = currentDiagram.labels ?? [];
+    const label = labels[draggingIdx];
+    if (!label) return;
 
-  const p = svgPoint(ev.clientX, ev.clientY);
-  const newX = p.x - offsetX;
-  const newY = p.y - offsetY;
+    const p = svgPoint(ev.clientX, ev.clientY);
+    const newX = p.x - offsetX;
+    const newY = p.y - offsetY;
 
-  label.x = Math.round(newX * 100) / 100;
-  label.y = Math.round(newY * 100) / 100;
+    label.x = Math.round(newX * 100) / 100;
+    label.y = Math.round(newY * 100) / 100;
 
-  const textEl = svg.querySelector(`[data-label-index="${draggingIdx}"]`) as SVGTextElement | null;
-  if (textEl) {
-    textEl.setAttribute("x", String(label.x));
-    textEl.setAttribute("y", String(label.y));
-  }
-};
+    const textEl = svg.querySelector(`[data-label-index="${draggingIdx}"]`) as SVGTextElement | null;
+    if (textEl) {
+      textEl.setAttribute("x", String(label.x));
+      textEl.setAttribute("y", String(label.y));
+    }
+  };
 
-const onPointerUp = (ev: PointerEvent) => {
-  if (draggingIdx === null) return;
-  draggingIdx = null;
-  try {
-    svg.releasePointerCapture(ev.pointerId);
-  } catch {
-    // ignore
-  }
-};
+  const onPointerUp = (ev: PointerEvent) => {
+    if (draggingIdx === null) return;
+    draggingIdx = null;
+    try {
+      svg.releasePointerCapture(ev.pointerId);
+    } catch {
+      // ignore
+    }
+  };
 
-svg.addEventListener("pointerdown", onPointerDown);
-svg.addEventListener("pointermove", onPointerMove);
-svg.addEventListener("pointerup", onPointerUp);
-svg.addEventListener("pointercancel", onPointerUp);
-svg.addEventListener("pointerleave", onPointerUp);
+  svg.addEventListener("pointerdown", onPointerDown);
+  svg.addEventListener("pointermove", onPointerMove);
+  svg.addEventListener("pointerup", onPointerUp);
+  svg.addEventListener("pointercancel", onPointerUp);
+  svg.addEventListener("pointerleave", onPointerUp);
 }
 
 // ---------- API ----------
@@ -354,6 +330,9 @@ async function generateDiagram(description: string): Promise<DiagramSpec> {
 
   const json = await res.json().catch(() => ({}));
 
+  // Always show raw response (even if validation fails later)
+  if (debugRawEl) debugRawEl.textContent = JSON.stringify(json, null, 2);
+
   if (!res.ok) {
     const msg = json?.error ? String(json.error) : `HTTP ${res.status}`;
     throw new Error(msg);
@@ -361,9 +340,7 @@ async function generateDiagram(description: string): Promise<DiagramSpec> {
 
   const diagram = json?.diagram;
   if (!diagram) throw new Error("Missing `diagram` in response.");
-if (debugRawEl) debugRawEl.textContent = JSON.stringify(json, null, 2);
 
-  // Normalize in the frontend boundary (keeps state safe)
   return validateSpec(diagram);
 }
 
@@ -403,6 +380,7 @@ btnGenerate.addEventListener("click", async () => {
     mountDiagram(diagram);
     setStatus("Generated. Drag labels to adjust.");
   } catch (e: any) {
+    console.error("Generate failed:", e);
     setError(e?.message ?? String(e));
     setStatus("");
   } finally {
@@ -431,4 +409,4 @@ btnDownloadPng.addEventListener("click", () => {
   downloadPNGFromSVG(svgString, "diagram.png");
   setStatus("PNG downloaded.");
 });
-
+// ---------- Initial setup ----------
