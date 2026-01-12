@@ -28,7 +28,7 @@ app.innerHTML = `
         <a class="topbarLink" href="#" id="linkTemplates">Templates</a>
         <a class="topbarLink" href="#" id="linkDocs">Docs</a>
         <a class="topbarLink" href="#" id="linkAbout">About</a>
-        <a class="topbarCta" href="#" id="linkDonate">Donate</a>
+        <a class="topbarCta" href="https://ko-fi.com/ahudson" target="_blank" rel="noopener noreferrer" id="linkDonate">Support this project</a>
       </nav>
     </header>
 
