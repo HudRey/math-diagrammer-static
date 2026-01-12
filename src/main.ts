@@ -974,4 +974,3 @@ const prevent = (id: string, msg: string) => {
 prevent("linkTemplates", "Templates coming soon.");
 prevent("linkDocs", "Docs coming soon.");
 prevent("linkAbout", "About page coming soon.");
-prevent("linkDonate", "Donate link coming soon.");
