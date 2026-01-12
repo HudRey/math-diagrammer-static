@@ -41,6 +41,14 @@ app.innerHTML = `
           <textarea id="desc" placeholder="Example: Draw a rectangle for a perimeter problem. Label top = 12 cm, left = 7 cm, right = 7 cm, bottom = x cm."></textarea>
         </label>
 
+        <label>Mode
+          <select id="mode">
+            <option value="diagram2d" selected>2D Diagram</option>
+            <option value="graph">Graph (Cartesian Plane)</option>
+           <option value="scene3d">3D (Coming soon)</option>
+          </select>
+        </label>
+
         <div class="row2">
           <button id="generate">Generate</button>
           <button id="example">Load example</button>
@@ -899,10 +907,10 @@ async function generateDiagram(description: string): Promise<DiagramSpec> {
 // ---------- UI wiring ----------
 btnExample.addEventListener("click", () => {
   clearMessages();
-  descEl.value =
-    "Draw a rectangle for a perimeter problem. Label top = 12 cm, left = 7 cm, right = 7 cm, bottom = x cm.";
-  setStatus("Example loaded. Click Generate.");
+  descEl.value = MODE_CONFIG[currentMode].example;
+  setStatus(`Example loaded for ${currentMode}. Click Generate.`);
 });
+
 
 btnApplyStyle.addEventListener("click", () => {
   clearMessages();
@@ -918,6 +926,15 @@ btnApplyStyle.addEventListener("click", () => {
 
 btnGenerate.addEventListener("click", async () => {
   clearMessages();
+  if (currentMode !== "diagram2d") {
+  setError(
+    currentMode === "graph"
+      ? "Graph mode is not wired yet. Next step: add a GraphSpec + renderer."
+      : "3D mode isn’t implemented yet. Next step: pick a 3D rendering approach."
+  );
+  return;
+}
+
   const description = descEl.value.trim();
   if (!description) {
     setError("Type a diagram description first.");
@@ -940,6 +957,54 @@ btnGenerate.addEventListener("click", async () => {
     btnGenerate.disabled = false;
   }
 });
+
+type Mode = "diagram2d" | "graph" | "scene3d";
+
+const modeEl = document.getElementById("mode") as HTMLSelectElement;
+
+const MODE_CONFIG: Record<Mode, { placeholder: string; example: string }> = {
+  diagram2d: {
+    placeholder:
+      "Example: Draw a rectangle for a perimeter problem. Label top = 12 cm, left = 7 cm, right = 7 cm, bottom = x cm.",
+    example:
+      "Draw a rectangle for a perimeter problem. Label top = 12 cm, left = 7 cm, right = 7 cm, bottom = x cm.",
+  },
+  graph: {
+    placeholder:
+      "Example: Create a coordinate plane from -10 to 10. Plot y = 2x + 1. Mark intercepts and label them.",
+    example:
+      "Create a coordinate plane from -10 to 10 on both axes. Plot y = 2x + 1. Mark the y-intercept and x-intercept, label them, and show the line clearly.",
+  },
+  scene3d: {
+    placeholder:
+      "Example: Draw a rectangular prism with length 8, width 5, height 3. Label edges; show hidden edges dashed.",
+    example:
+      "Draw a rectangular prism with length 8, width 5, height 3. Label length, width, height. Show hidden edges dashed.",
+  },
+};
+
+let currentMode: Mode = (modeEl?.value as Mode) ?? "diagram2d";
+
+function applyMode(m: Mode) {
+  currentMode = m;
+
+  // update placeholder
+  descEl.placeholder = MODE_CONFIG[m].placeholder;
+
+  // small status hint
+  if (m === "diagram2d") setStatus("Mode set to: 2D Diagram");
+  else if (m === "graph") setStatus("Mode set to: Graph (not wired yet)");
+  else setStatus("Mode set to: 3D (not implemented yet)");
+}
+
+// initialize once on load
+applyMode(currentMode);
+
+modeEl?.addEventListener("change", () => {
+  clearMessages();
+  applyMode(modeEl.value as Mode);
+});
+
 
 btnDownloadSvg.addEventListener("click", () => {
   clearMessages();
