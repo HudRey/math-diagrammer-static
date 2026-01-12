@@ -1,5 +1,6 @@
 import "./style.css";
 import { renderDiagramSVG, validateSpec, type DiagramSpec } from "./renderDiagram";
+import { PRODUCERS } from "./modes/all";
 
 type StylePrefs = {
   stroke: string; // shape outline
@@ -926,37 +927,51 @@ btnApplyStyle.addEventListener("click", () => {
 
 btnGenerate.addEventListener("click", async () => {
   clearMessages();
-  if (currentMode !== "diagram2d") {
-  setError(
-    currentMode === "graph"
-      ? "Graph mode is not wired yet. Next step: add a GraphSpec + renderer."
-      : "3D mode isn’t implemented yet. Next step: pick a 3D rendering approach."
-  );
-  return;
-}
 
   const description = descEl.value.trim();
   if (!description) {
-    setError("Type a diagram description first.");
+    setError("Type a description first.");
     return;
   }
 
+  // read canvas size from inputs (falls back safely)
+  const canvasWidth = Number(canvasWidthEl?.value || "900");
+  const canvasHeight = Number(canvasHeightEl?.value || "450");
+
   btnGenerate.disabled = true;
-  setStatus("Generating…");
 
   try {
-    const diagram = await generateDiagram(description);
-    mountDiagram(diagram, { setBase: true }); // snapshot for reset
+    setStatus(currentMode === "diagram2d" ? "Generating…" : "Building…");
+
+    // IMPORTANT: pick your producer (however you implemented this)
+    // If you have PRODUCERS array:
+    const producer = PRODUCERS.find((p) => p.mode === currentMode);
+    if (!producer) throw new Error(`Unknown mode: ${currentMode}`);
+
+    const diagram = await producer.produce({
+      description,
+      canvasWidth,
+      canvasHeight,
+      fetchDiagram: generateDiagram, // only used by diagram2dProducer
+    });
+
+    mountDiagram(diagram, { setBase: true });
     resetViewRecenter();
-    setStatus("Generated. Drag labels to adjust.");
+
+    setStatus(
+      currentMode === "diagram2d"
+        ? "Generated. Drag labels to adjust."
+        : "Generated locally (no tokens). Drag labels to adjust."
+    );
   } catch (e: any) {
-    console.error("Generate failed:", e);
+    console.error(e);
     setError(e?.message ?? String(e));
     setStatus("");
   } finally {
     btnGenerate.disabled = false;
   }
 });
+
 
 type Mode = "diagram2d" | "graph" | "scene3d";
 
