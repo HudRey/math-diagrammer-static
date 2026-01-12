@@ -168,6 +168,11 @@ const canvasHeightEl = $("#canvasHeight") as HTMLInputElement;
 let currentDiagram: DiagramSpec | null = null;
 // NEW: snapshot of last generated (or last example) diagram for "Reset diagram"
 let baseDiagram: DiagramSpec | null = null;
+const dragToggle = document.getElementById("enableDrag") as HTMLInputElement | null;
+dragToggle?.addEventListener("change", () => {
+  if (!currentDiagram) return;
+  mountDiagram(currentDiagram); // re-mount to add/remove drag handlers
+});
 
 // ---------- UI helpers ----------
 function setStatus(msg: string) {
@@ -500,6 +505,7 @@ const svgPoint = (clientX: number, clientY: number) => {
     // DOM element being dragged
     el: SVGElement;
 
+    
     // Base geometry used to avoid "flying"
     baseSegment?: { ax: number; ay: number; bx: number; by: number };
     basePolygon?: { points: [number, number][] };
