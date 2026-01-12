@@ -17,97 +17,111 @@ const $ = <T extends HTMLElement>(sel: string) => {
 
 const app = $("#app");
 app.innerHTML = `
-  <div class="layout">
-    <div class="panel">
-      <div class="title">Math Diagram Renderer</div>
-      <div class="sub">Describe your diagram → generate → drag → download.</div>
-
-      <label>Diagram description
-        <textarea id="desc" placeholder="Example: Draw a rectangle for a perimeter problem. Label top = 12 cm, left = 7 cm, right = 7 cm, bottom = x cm."></textarea>
-      </label>
-
-      <div class="row2">
-        <button id="generate">Generate</button>
-        <button id="example">Load example</button>
+  <div class="appShell">
+    <header class="topbar">
+      <div class="topbarLeft">
+        <div class="brand">Math Diagrammer</div>
+        <div class="brandSub">Generate → drag → download</div>
       </div>
 
-      <div id="status" class="status"></div>
-      <div id="err" class="err"></div>
+      <nav class="topbarNav">
+        <a class="topbarLink" href="#" id="linkTemplates">Templates</a>
+        <a class="topbarLink" href="#" id="linkDocs">Docs</a>
+        <a class="topbarLink" href="#" id="linkAbout">About</a>
+        <a class="topbarCta" href="#" id="linkDonate">Donate</a>
+      </nav>
+    </header>
 
-<details>
-        <summary>Style</summary>
-        <div class="sectionBody">
+    <div class="layout">
+      <div class="panel">
+        <div class="title">Math Diagram Renderer</div>
+        <div class="sub">Describe your diagram → generate → drag → download.</div>
 
-          <div class="row2">
-            <div>
-              <label>Canvas width</label>
-              <input id="canvasWidth" type="number" min="200" max="4000" step="10" value="900" />
-            </div>
-            <div>
-              <label>Canvas height</label>
-              <input id="canvasHeight" type="number" min="200" max="4000" step="10" value="450" />
-            </div>
-          </div>
+        <label>Diagram description
+          <textarea id="desc" placeholder="Example: Draw a rectangle for a perimeter problem. Label top = 12 cm, left = 7 cm, right = 7 cm, bottom = x cm."></textarea>
+        </label>
 
-          <div class="row2">
-            <button id="applyCanvas">Apply canvas</button>
-            <button id="resetView">Reset view</button>
-          </div>
-
-          <div class="row2">
-            <button id="resetDiagram">Reset diagram</button>
-            <div></div>
-          </div>
-
-          <div class="row2">
-            <div>
-              <label>Outline</label>
-              <input id="stroke" type="color" value="#000000" />
-            </div>
-            <div>
-              <label>Fill</label>
-              <input id="fill" type="color" value="#ffffff" />
-            </div>
-          </div>
-
-          <div class="row2">
-            <div>
-              <label>Annotation color</label>
-              <input id="labelColor" type="color" value="#000000" />
-            </div>
-            <div>
-              <label>Annotation font size</label>
-              <input id="labelFontSize" type="number" min="10" max="64" step="1" value="22" />
-            </div>
-          </div>
-
-          <button id="applyStyle">Apply style to current diagram</button>
+        <div class="row2">
+          <button id="generate">Generate</button>
+          <button id="example">Load example</button>
         </div>
-      </details>
 
-      <!-- Downloads stay visible (NOT after debug) -->
-      <div class="row2">
-        <button id="downloadSvg">Download SVG</button>
-        <button id="downloadPng">Download PNG</button>
+        <div id="status" class="status"></div>
+        <div id="err" class="err"></div>
+
+        <details>
+          <summary>Style</summary>
+          <div class="sectionBody">
+            <div class="row2">
+              <div>
+                <label>Canvas width</label>
+                <input id="canvasWidth" type="number" min="200" max="4000" step="10" value="900" />
+              </div>
+              <div>
+                <label>Canvas height</label>
+                <input id="canvasHeight" type="number" min="200" max="4000" step="10" value="450" />
+              </div>
+            </div>
+
+            <div class="row2">
+              <button id="applyCanvas">Apply canvas</button>
+              <button id="resetView">Reset view</button>
+            </div>
+
+            <div class="row2">
+              <button id="resetDiagram">Reset diagram</button>
+              <div></div>
+            </div>
+
+            <div class="row2">
+              <div>
+                <label>Outline</label>
+                <input id="stroke" type="color" value="#000000" />
+              </div>
+              <div>
+                <label>Fill</label>
+                <input id="fill" type="color" value="#ffffff" />
+              </div>
+            </div>
+
+            <div class="row2">
+              <div>
+                <label>Annotation color</label>
+                <input id="labelColor" type="color" value="#000000" />
+              </div>
+              <div>
+                <label>Annotation font size</label>
+                <input id="labelFontSize" type="number" min="10" max="64" step="1" value="22" />
+              </div>
+            </div>
+
+            <button id="applyStyle">Apply style to current diagram</button>
+          </div>
+        </details>
+
+        <div class="row2">
+          <button id="downloadSvg">Download SVG</button>
+          <button id="downloadPng">Download PNG</button>
+        </div>
+
+        <details class="debug">
+          <summary>Debug</summary>
+          <div class="debugBody">
+            <div class="debugLabel">Rendered (normalized) DiagramSpec</div>
+            <pre id="debugJson" class="debugJson"></pre>
+            <div class="debugLabel">Raw server response</div>
+            <pre id="debugRaw" class="debugJson"></pre>
+          </div>
+        </details>
       </div>
 
-      <!-- Debug at bottom, collapsed by default -->
-      <details class="debug">
-        <summary>Debug</summary>
-        <div class="debugBody">
-          <div class="debugLabel">Rendered (normalized) DiagramSpec</div>
-          <pre id="debugJson" class="debugJson"></pre>
-          <div class="debugLabel">Raw server response</div>
-          <pre id="debugRaw" class="debugJson"></pre>
-        </div>
-      </details>
-    </div>
-
-    <div class="stage">
-      <div id="svgHost" class="svgHost"></div>
+      <div class="stage">
+        <div id="svgHost" class="svgHost"></div>
+      </div>
     </div>
   </div>
 `;
+
 
 // Debug sanity checks (these execute as real JS, not HTML)
 console.log("app injected:", !!document.querySelector(".layout"));
@@ -948,3 +962,16 @@ btnDownloadPng.addEventListener("click", () => {
   downloadPNGFromSVG(svgString, "diagram.png");
   setStatus("PNG downloaded.");
 });
+
+const prevent = (id: string, msg: string) => {
+  const el = document.getElementById(id);
+  el?.addEventListener("click", (e) => {
+    e.preventDefault();
+    setStatus(msg);
+  });
+};
+
+prevent("linkTemplates", "Templates coming soon.");
+prevent("linkDocs", "Docs coming soon.");
+prevent("linkAbout", "About page coming soon.");
+prevent("linkDonate", "Donate link coming soon.");
