@@ -82,6 +82,11 @@ app.innerHTML = `
               <div></div>
             </div>
 
+            <label style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+              <input id="enableDrag" type="checkbox" checked />
+                Enable drag on diagram
+            </label>
+
             <div class="row2">
               <div>
                 <label>Outline</label>
@@ -246,8 +251,20 @@ function mountDiagram(diagram: DiagramSpec, { setBase = false }: { setBase?: boo
   const svgString = renderDiagramSVG(safe);
   svgHost.innerHTML = svgString;
 
-  hookDragHandlers();
+  // Drag behavior:
+  // - Default OFF in graph mode (dragging line segments is confusing)
+  // - Default ON in diagram2d mode
+  // - If checkbox exists, respect it
+  const dragToggle = document.getElementById("enableDrag") as HTMLInputElement | null;
+
+  const defaultDrag = currentMode !== "graph"; // graph: false, diagram2d: true
+  const dragEnabled = dragToggle ? dragToggle.checked : defaultDrag;
+
+  if (dragEnabled) {
+    hookDragHandlers();
+  }
 }
+
 
 function downloadText(filename: string, data: string, mime: string) {
   const blob = new Blob([data], { type: mime });
@@ -1010,6 +1027,10 @@ function applyMode(m: Mode) {
   if (m === "diagram2d") setStatus("Mode set to: 2D Diagram");
   else if (m === "graph") setStatus("Mode set to: Graph (not wired yet)");
   else setStatus("Mode set to: 3D (not implemented yet)");
+
+  const dragToggle = document.getElementById("enableDrag") as HTMLInputElement | null;
+if (dragToggle) dragToggle.checked = m !== "graph";
+
 }
 
 // initialize once on load
