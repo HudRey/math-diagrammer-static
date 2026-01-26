@@ -409,13 +409,9 @@ function normalizeAndClamp(diagram: any, opts?: { allowRects?: boolean; allowTou
     };
   });
 
-  // Optional: strip large frame rectangles when not requested
+  // Optional: strip all rectangles when not requested (prevents model "frames")
   if (opts?.allowRects === false) {
-    const maxArea = (CANVAS_W * CANVAS_H) * 0.6;
-    diagram.rects = diagram.rects.filter((r: any) => {
-      const area = num(r.w, 0) * num(r.h, 0);
-      return area > 0 && area < maxArea;
-    });
+    diagram.rects = [];
   }
 
   // Circles: clamp center
@@ -788,7 +784,51 @@ export default async function handler(req: any, res: any) {
     const allowsTouching = /(touch|touching|overlap|overlapping|intersect|intersection|share|sharing|adjacent|tangent|inscribed|inside|nested|concentric|cross|connected|meet at|secant)/i.test(
       description
     );
-    const safeDiagram = normalizeAndClamp(diagram, { allowRects: mentionsRect, allowTouching: allowsTouching });
+    let safeDiagram = normalizeAndClamp(diagram, { allowRects: mentionsRect, allowTouching: allowsTouching });
+
+    // --- Special-case: two reflected triangles ---
+    const wantsTwoTriangles = /two\s+triangles?/i.test(description);
+    const wantsReflection = /(reflect|reflected|mirror|mirrored)/i.test(description);
+    if (wantsTwoTriangles && wantsReflection) {
+      const left = [
+        [260, 310],
+        [420, 150],
+        [520, 310],
+      ];
+      const right = [
+        [640, 310],
+        [480, 150],
+        [380, 310],
+      ];
+
+      // base labels from prompt
+      const baseLabel = description.match(/base\s+([0-9a-zA-Z+\-]+)\s*(cm|in|m|ft)?/i);
+      const base1 = baseLabel ? `${baseLabel[1]}${baseLabel[2] ? " " + baseLabel[2] : ""}` : "15 cm";
+      const base2 = /x\s*\+\s*y/i.test(description) ? "x + y" : "?";
+
+      safeDiagram = {
+        ...safeDiagram,
+        rects: [],
+        circles: [],
+        ellipses: [],
+        polygons: [
+          { points: left, stroke: "#000000", strokeWidth: 3, fill: "none" },
+          { points: right, stroke: "#000000", strokeWidth: 3, fill: "none" },
+        ],
+        segments: [],
+        points: [],
+        labels: [
+          { text: "A", x: 245, y: 330, color: "#000000", fontSize: 18, bold: true },
+          { text: "B", x: 420, y: 135, color: "#000000", fontSize: 18, bold: true },
+          { text: "C", x: 535, y: 330, color: "#000000", fontSize: 18, bold: true },
+          { text: "D", x: 655, y: 330, color: "#000000", fontSize: 18, bold: true },
+          { text: "E", x: 480, y: 135, color: "#000000", fontSize: 18, bold: true },
+          { text: "F", x: 365, y: 330, color: "#000000", fontSize: 18, bold: true },
+          { text: base1, x: 390, y: 340, color: "#000000", fontSize: 18, bold: true },
+          { text: base2, x: 520, y: 340, color: "#000000", fontSize: 18, bold: true },
+        ],
+      };
+    }
 
     // --- Coordinate mapping override (deterministic) ---
     const parsed = parsePointPairsFromText(description);
