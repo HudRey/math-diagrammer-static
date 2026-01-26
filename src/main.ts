@@ -197,6 +197,8 @@ let currentDiagram: DiagramSpec | null = null;
 // NEW: snapshot of last generated (or last example) diagram for "Reset diagram"
 let baseDiagram: DiagramSpec | null = null;
 let activeTemplateId: string | null = null;
+const selectedEntities = new Set<string>();
+const selectedLabels = new Set<number>();
 const dragToggle = document.getElementById("enableDrag") as HTMLInputElement | null;
 dragToggle?.addEventListener("change", () => {
   if (!currentDiagram) return;
@@ -305,6 +307,8 @@ function mountDiagram(diagram: DiagramSpec, { setBase = false }: { setBase?: boo
 
   const svgString = renderDiagramSVG(safe);
   svgHost.innerHTML = svgString;
+  selectedEntities.clear();
+  selectedLabels.clear();
 
   // Drag behavior:
   // - Default OFF in graph mode (dragging line segments is confusing)
@@ -470,8 +474,9 @@ function hookDragHandlers() {
   const W = currentDiagram.canvas.width ?? 900;
   const H = currentDiagram.canvas.height ?? 450;
 
-  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-  const round = (v: number) => Math.round(v * 100) / 100;
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const round = (v: number) => Math.round(v * 100) / 100;
+const num = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
 
   // NEW: clamp the translation so ALL points remain in-bounds (prevents "squish")
   const clampDeltaForPoints = (pts: [number, number][], dx: number, dy: number) => {
@@ -536,6 +541,79 @@ const svgPoint = (clientX: number, clientY: number) => {
 
   type EntityKind = "segment" | "polygon" | "rect" | "circle" | "ellipse" | "point";
 
+  type BBox = { minX: number; minY: number; maxX: number; maxY: number };
+  const entityKey = (kind: EntityKind, idx: number) => `${kind}:${idx}`;
+  const getEntityGroup = (kind: EntityKind, idx: number) =>
+    svg.querySelector(`g[data-entity="${kind}"][data-index="${idx}"]`) as SVGGElement | null;
+  const getEntityElement = (kind: EntityKind, idx: number) =>
+    (getEntityGroup(kind, idx)?.firstElementChild as SVGElement | null);
+  const getLabelElement = (idx: number) =>
+    svg.querySelector(`text[data-label-index="${idx}"]`) as SVGTextElement | null;
+
+  const clearSelection = () => {
+    for (const key of selectedEntities) {
+      const [k, i] = key.split(":");
+      const kind = k as EntityKind;
+      const idx = Number(i);
+      getEntityGroup(kind, idx)?.classList.remove("selected");
+    }
+    for (const idx of selectedLabels) {
+      getLabelElement(idx)?.classList.remove("selected");
+    }
+    selectedEntities.clear();
+    selectedLabels.clear();
+  };
+
+  const selectEntity = (kind: EntityKind, idx: number) => {
+    const key = entityKey(kind, idx);
+    if (!selectedEntities.has(key)) {
+      selectedEntities.add(key);
+      getEntityGroup(kind, idx)?.classList.add("selected");
+    }
+  };
+
+  const deselectEntity = (kind: EntityKind, idx: number) => {
+    const key = entityKey(kind, idx);
+    if (selectedEntities.delete(key)) {
+      getEntityGroup(kind, idx)?.classList.remove("selected");
+    }
+  };
+
+  const toggleEntity = (kind: EntityKind, idx: number) => {
+    const key = entityKey(kind, idx);
+    if (selectedEntities.has(key)) deselectEntity(kind, idx);
+    else selectEntity(kind, idx);
+  };
+
+  const selectLabel = (idx: number) => {
+    if (!selectedLabels.has(idx)) {
+      selectedLabels.add(idx);
+      getLabelElement(idx)?.classList.add("selected");
+    }
+  };
+
+  const deselectLabel = (idx: number) => {
+    if (selectedLabels.delete(idx)) {
+      getLabelElement(idx)?.classList.remove("selected");
+    }
+  };
+
+  const toggleLabel = (idx: number) => {
+    if (selectedLabels.has(idx)) deselectLabel(idx);
+    else selectLabel(idx);
+  };
+
+  const clampDeltaForBBox = (b: BBox, dx: number, dy: number) => {
+    const minDx = -b.minX;
+    const maxDx = W - b.maxX;
+    const minDy = -b.minY;
+    const maxDy = H - b.maxY;
+    return {
+      dx: clamp(dx, minDx, maxDx),
+      dy: clamp(dy, minDy, maxDy),
+    };
+  };
+
   type DragLabel = {
     kind: "label";
     idx: number;
@@ -569,7 +647,28 @@ const svgPoint = (clientX: number, clientY: number) => {
     linkedLabelBases: Array<{ i: number; x: number; y: number; el: SVGTextElement }>;
   };
 
-  type DragMode = DragLabel | DragEntity;
+  type DragGroupItem =
+    | { kind: "label"; idx: number; x: number; y: number; el: SVGTextElement }
+    | { kind: "rect"; idx: number; x: number; y: number; w: number; h: number; el: SVGRectElement }
+    | { kind: "circle"; idx: number; cx: number; cy: number; r: number; el: SVGCircleElement }
+    | { kind: "ellipse"; idx: number; cx: number; cy: number; rx: number; ry: number; el: SVGEllipseElement }
+    | { kind: "polygon"; idx: number; points: [number, number][]; el: SVGPolygonElement; linkedLabelIdx: number[] }
+    | { kind: "segment"; idx: number; a: [number, number]; b: [number, number]; el: SVGLineElement; linkedPointIdx: number[] }
+    | { kind: "point"; idx: number; at: [number, number]; r: number; el: SVGCircleElement };
+
+  type DragGroup = {
+    kind: "group";
+    startX: number;
+    startY: number;
+    dx: number;
+    dy: number;
+    items: DragGroupItem[];
+    linkedPoints: Array<{ i: number; x: number; y: number; el: SVGCircleElement }>;
+    linkedLabels: Array<{ i: number; x: number; y: number; el: SVGTextElement }>;
+    bbox: BBox;
+  };
+
+  type DragMode = DragLabel | DragEntity | DragGroup;
   let drag: DragMode | null = null;
 
   const applyDeltaToSpec = (
@@ -650,117 +749,160 @@ const svgPoint = (clientX: number, clientY: number) => {
     const target = ev.target as Element | null;
     if (!target || !currentDiagram) return;
 
-    // --- LABEL drag ---
-    const idxStr = target.getAttribute("data-label-index");
-    if (idxStr) {
-      const idx = Number(idxStr);
-      if (!Number.isFinite(idx)) return;
+    const labelIdxStr = target.getAttribute("data-label-index");
+    const labelIdx = labelIdxStr ? Number(labelIdxStr) : -1;
+    const labelHit = Number.isFinite(labelIdx) && labelIdx >= 0;
 
-      const labels = currentDiagram.labels ?? [];
-      if (!labels[idx]) return;
+    const group = target.closest("g[data-entity]") as SVGGElement | null;
+    const kind = (group?.getAttribute("data-entity") as EntityKind | null) ?? null;
+    const idx = group ? Number(group.getAttribute("data-index")) : -1;
+    const entityHit = !!kind && Number.isFinite(idx) && idx >= 0;
 
-      svg.setPointerCapture(ev.pointerId);
-      const p = svgPoint(ev.clientX, ev.clientY);
-
-      drag = {
-        kind: "label",
-        idx,
-        offsetX: p.x - labels[idx].x,
-        offsetY: p.y - labels[idx].y,
-      };
+    if (!labelHit && !entityHit) {
+      if (!ev.shiftKey) clearSelection();
       return;
     }
 
-    // --- ENTITY drag ---
-    const el = target.closest("line, polygon, rect, ellipse, circle") as SVGElement | null;
-    if (!el) return;
+    if (ev.shiftKey) {
+      if (labelHit) toggleLabel(labelIdx);
+      if (entityHit) toggleEntity(kind!, idx);
+      return;
+    }
 
-    let entity: EntityKind | null = null;
-    let idx = -1;
-
-    const tag = el.tagName.toLowerCase();
-
-    if (tag === "line") {
-      entity = "segment";
-      idx = Array.from(svg.querySelectorAll("line")).indexOf(el as SVGLineElement);
-    } else if (tag === "polygon") {
-      entity = "polygon";
-      idx = Array.from(svg.querySelectorAll("polygon")).indexOf(el as SVGPolygonElement);
-    } else if (tag === "rect") {
-      entity = "rect";
-      const rectEls = Array.from(svg.querySelectorAll("rect")).filter((r) => r.getAttribute("width") !== "100%");
-      idx = rectEls.indexOf(el as SVGRectElement);
-    } else if (tag === "ellipse") {
-      entity = "ellipse";
-      idx = Array.from(svg.querySelectorAll("ellipse")).indexOf(el as SVGEllipseElement);
-    } else if (tag === "circle") {
-      // Could be a point marker circle OR a "circle shape"
-      const cx = Number(el.getAttribute("cx"));
-      const cy = Number(el.getAttribute("cy"));
-      const pts = currentDiagram.points ?? [];
-      const pi = pts.findIndex((p) => samePt([cx, cy], p.at));
-      if (pi >= 0) {
-        entity = "point";
-        idx = pi;
-      } else {
-        entity = "circle";
-        // Find matching circle object by center (best effort)
-        const cs = currentDiagram.circles ?? [];
-        const ci = cs.findIndex((c) => samePt([cx, cy], [c.cx, c.cy]));
-        idx = ci;
+    if (labelHit) {
+      if (!selectedLabels.has(labelIdx) || selectedEntities.size > 0) {
+        clearSelection();
+        selectLabel(labelIdx);
+      }
+    } else if (entityHit) {
+      const key = entityKey(kind!, idx);
+      if (!selectedEntities.has(key) || selectedLabels.size > 0) {
+        clearSelection();
+        selectEntity(kind!, idx);
       }
     }
 
-    if (!entity || idx < 0) return;
+    // Build drag group from selection
+    const p0 = svgPoint(ev.clientX, ev.clientY);
+    const items: DragGroupItem[] = [];
+    const linkedPointsMap = new Map<number, { i: number; x: number; y: number; el: SVGCircleElement }>();
+    const linkedLabelsMap = new Map<number, { i: number; x: number; y: number; el: SVGTextElement }>();
+    let groupBBox: BBox | null = null;
 
-    const linkedPointIdx: number[] = [];
-    const linkedPointBases: Array<{ i: number; x: number; y: number; el: SVGCircleElement }> = [];
-    const linkedLabelIdx: number[] = [];
-    const linkedLabelBases: Array<{ i: number; x: number; y: number; el: SVGTextElement }> = [];
+    const extendBBox = (b: BBox) => {
+      if (!groupBBox) {
+        groupBBox = { ...b };
+        return;
+      }
+      groupBBox.minX = Math.min(groupBBox.minX, b.minX);
+      groupBBox.minY = Math.min(groupBBox.minY, b.minY);
+      groupBBox.maxX = Math.max(groupBBox.maxX, b.maxX);
+      groupBBox.maxY = Math.max(groupBBox.maxY, b.maxY);
+    };
 
-    let baseSegment: DragEntity["baseSegment"];
-    let basePolygon: DragEntity["basePolygon"];
+    for (const key of selectedEntities) {
+      const [k, i] = key.split(":");
+      const entity = k as EntityKind;
+      const eIdx = Number(i);
+      const el = getEntityElement(entity, eIdx);
+      if (!el) continue;
 
-    // Segment: link endpoint dots
-    if (entity === "segment") {
-      const seg = currentDiagram.segments?.[idx];
-      if (seg) {
-        baseSegment = { ax: seg.a[0], ay: seg.a[1], bx: seg.b[0], by: seg.b[1] };
+      if (entity === "rect") {
+        const r = currentDiagram.rects?.[eIdx];
+        if (!r) continue;
+        items.push({
+          kind: "rect",
+          idx: eIdx,
+          x: r.x,
+          y: r.y,
+          w: r.w,
+          h: r.h,
+          el: el as SVGRectElement,
+        });
+        extendBBox({ minX: r.x, minY: r.y, maxX: r.x + r.w, maxY: r.y + r.h });
+      }
+
+      if (entity === "circle") {
+        const c = currentDiagram.circles?.[eIdx];
+        if (!c) continue;
+        items.push({
+          kind: "circle",
+          idx: eIdx,
+          cx: c.cx,
+          cy: c.cy,
+          r: c.r,
+          el: el as SVGCircleElement,
+        });
+        extendBBox({ minX: c.cx - c.r, minY: c.cy - c.r, maxX: c.cx + c.r, maxY: c.cy + c.r });
+      }
+
+      if (entity === "ellipse") {
+        const e = currentDiagram.ellipses?.[eIdx];
+        if (!e) continue;
+        items.push({
+          kind: "ellipse",
+          idx: eIdx,
+          cx: e.cx,
+          cy: e.cy,
+          rx: e.rx,
+          ry: e.ry,
+          el: el as SVGEllipseElement,
+        });
+        extendBBox({ minX: e.cx - e.rx, minY: e.cy - e.ry, maxX: e.cx + e.rx, maxY: e.cy + e.ry });
+      }
+
+      if (entity === "point") {
+        const p = currentDiagram.points?.[eIdx];
+        if (!p) continue;
+        const r = num(p.r, 4);
+        items.push({ kind: "point", idx: eIdx, at: [p.at[0], p.at[1]], r, el: el as SVGCircleElement });
+        extendBBox({ minX: p.at[0] - r, minY: p.at[1] - r, maxX: p.at[0] + r, maxY: p.at[1] + r });
+      }
+
+      if (entity === "segment") {
+        const s = currentDiagram.segments?.[eIdx];
+        if (!s) continue;
+        items.push({
+          kind: "segment",
+          idx: eIdx,
+          a: [s.a[0], s.a[1]],
+          b: [s.b[0], s.b[1]],
+          el: el as SVGLineElement,
+          linkedPointIdx: [],
+        });
+        const minX = Math.min(s.a[0], s.b[0]);
+        const maxX = Math.max(s.a[0], s.b[0]);
+        const minY = Math.min(s.a[1], s.b[1]);
+        const maxY = Math.max(s.a[1], s.b[1]);
+        extendBBox({ minX, minY, maxX, maxY });
 
         const pts = currentDiagram.points ?? [];
-        for (let i = 0; i < pts.length; i++) {
-          const at = pts[i]?.at;
+        for (let iPt = 0; iPt < pts.length; iPt++) {
+          const at = pts[iPt]?.at;
           if (!at) continue;
-          if (samePt(at, seg.a) || samePt(at, seg.b)) linkedPointIdx.push(i);
-        }
-
-        // Map to SVG circle elements currently rendered
-        const circleEls = Array.from(svg.querySelectorAll("circle"));
-        for (const pi of linkedPointIdx) {
-          const at = currentDiagram.points?.[pi]?.at;
-          if (!at) continue;
-          const [px, py] = at;
-
-          const cEl = circleEls.find((c) =>
-            samePt([Number(c.getAttribute("cx")), Number(c.getAttribute("cy"))], [px, py])
-          );
-          if (cEl) {
-            linkedPointBases.push({
-              i: pi,
-              x: Number(cEl.getAttribute("cx")),
-              y: Number(cEl.getAttribute("cy")),
-              el: cEl,
-            });
+          if (samePt(at, s.a) || samePt(at, s.b)) {
+            const cEl = getEntityElement("point", iPt) as SVGCircleElement | null;
+            if (cEl && !linkedPointsMap.has(iPt)) {
+              linkedPointsMap.set(iPt, { i: iPt, x: at[0], y: at[1], el: cEl });
+            }
           }
         }
       }
-    }
 
-    // Polygon: link vertex labels (A,B,C...) near vertices
-    if (entity === "polygon") {
-      const poly = currentDiagram.polygons?.[idx];
-      if (poly && (poly.points?.length ?? 0) >= 3) {
-        basePolygon = { points: (poly.points ?? []).map(([x, y]) => [x, y]) as [number, number][] };
+      if (entity === "polygon") {
+        const p = currentDiagram.polygons?.[eIdx];
+        if (!p) continue;
+        const pts = (p.points ?? []).map(([x, y]) => [x, y]) as [number, number][];
+        items.push({
+          kind: "polygon",
+          idx: eIdx,
+          points: pts,
+          el: el as SVGPolygonElement,
+          linkedLabelIdx: [],
+        });
+        const xs = pts.map((q) => q[0]);
+        const ys = pts.map((q) => q[1]);
+        extendBBox({ minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) });
 
         const labels = currentDiagram.labels ?? [];
         for (let li = 0; li < labels.length; li++) {
@@ -768,42 +910,37 @@ const svgPoint = (clientX: number, clientY: number) => {
           if (!lab) continue;
           if (!/^[A-Z]$/.test(lab.text)) continue;
 
-          const vI = nearestVertexIndex({ x: lab.x, y: lab.y }, poly.points);
-          if (vI >= 0) linkedLabelIdx.push(li);
-        }
-
-        for (const li of linkedLabelIdx) {
-          const tEl = svg.querySelector(`text[data-label-index="${li}"]`) as SVGTextElement | null;
-          if (tEl) {
-            linkedLabelBases.push({
-              i: li,
-              x: Number(tEl.getAttribute("x")),
-              y: Number(tEl.getAttribute("y")),
-              el: tEl,
-            });
+          const vI = nearestVertexIndex({ x: lab.x, y: lab.y }, pts);
+          if (vI >= 0 && !selectedLabels.has(li)) {
+            const tEl = getLabelElement(li);
+            if (tEl && !linkedLabelsMap.has(li)) {
+              linkedLabelsMap.set(li, { i: li, x: lab.x, y: lab.y, el: tEl });
+            }
           }
         }
       }
     }
 
-    svg.setPointerCapture(ev.pointerId);
-    const p0 = svgPoint(ev.clientX, ev.clientY);
+    for (const li of selectedLabels) {
+      const lab = currentDiagram.labels?.[li];
+      const tEl = getLabelElement(li);
+      if (!lab || !tEl) continue;
+      items.push({ kind: "label", idx: li, x: lab.x, y: lab.y, el: tEl });
+      extendBBox({ minX: lab.x - 6, minY: lab.y - 6, maxX: lab.x + 6, maxY: lab.y + 6 });
+    }
 
+    if (!groupBBox) return;
+    svg.setPointerCapture(ev.pointerId);
     drag = {
-      kind: "entity",
-      entity,
-      idx,
+      kind: "group",
       startX: p0.x,
       startY: p0.y,
       dx: 0,
       dy: 0,
-      el,
-      baseSegment,
-      basePolygon,
-      linkedPointIdx,
-      linkedPointBases,
-      linkedLabelIdx,
-      linkedLabelBases,
+      items,
+      linkedPoints: Array.from(linkedPointsMap.values()),
+      linkedLabels: Array.from(linkedLabelsMap.values()),
+      bbox: groupBBox,
     };
   };
 
@@ -828,6 +965,67 @@ const svgPoint = (clientX: number, clientY: number) => {
       if (textEl) {
         textEl.setAttribute("x", String(label.x));
         textEl.setAttribute("y", String(label.y));
+      }
+      return;
+    }
+
+    // --- GROUP move ---
+    if (drag.kind === "group") {
+      let dx = p.x - drag.startX;
+      let dy = p.y - drag.startY;
+      const bounded = clampDeltaForBBox(drag.bbox, dx, dy);
+      dx = bounded.dx;
+      dy = bounded.dy;
+      drag.dx = dx;
+      drag.dy = dy;
+
+      for (const it of drag.items) {
+        if (it.kind === "label") {
+          it.el.setAttribute("x", String(clamp(it.x + dx, 0, W)));
+          it.el.setAttribute("y", String(clamp(it.y + dy, 0, H)));
+          continue;
+        }
+        if (it.kind === "rect") {
+          it.el.setAttribute("x", String(clamp(it.x + dx, 0, W - it.w)));
+          it.el.setAttribute("y", String(clamp(it.y + dy, 0, H - it.h)));
+          continue;
+        }
+        if (it.kind === "circle") {
+          it.el.setAttribute("cx", String(clamp(it.cx + dx, it.r, W - it.r)));
+          it.el.setAttribute("cy", String(clamp(it.cy + dy, it.r, H - it.r)));
+          continue;
+        }
+        if (it.kind === "ellipse") {
+          it.el.setAttribute("cx", String(clamp(it.cx + dx, it.rx, W - it.rx)));
+          it.el.setAttribute("cy", String(clamp(it.cy + dy, it.ry, H - it.ry)));
+          continue;
+        }
+        if (it.kind === "point") {
+          it.el.setAttribute("cx", String(clamp(it.at[0] + dx, 0, W)));
+          it.el.setAttribute("cy", String(clamp(it.at[1] + dy, 0, H)));
+          continue;
+        }
+        if (it.kind === "segment") {
+          it.el.setAttribute("x1", String(it.a[0] + dx));
+          it.el.setAttribute("y1", String(it.a[1] + dy));
+          it.el.setAttribute("x2", String(it.b[0] + dx));
+          it.el.setAttribute("y2", String(it.b[1] + dy));
+          continue;
+        }
+        if (it.kind === "polygon") {
+          const moved = it.points.map(([x, y]) => [x + dx, y + dy] as [number, number]);
+          it.el.setAttribute("points", moved.map(([x, y]) => `${x},${y}`).join(" "));
+          continue;
+        }
+      }
+
+      for (const lp of drag.linkedPoints) {
+        lp.el.setAttribute("cx", String(clamp(lp.x + dx, 0, W)));
+        lp.el.setAttribute("cy", String(clamp(lp.y + dy, 0, H)));
+      }
+      for (const ll of drag.linkedLabels) {
+        ll.el.setAttribute("x", String(clamp(ll.x + dx, 0, W)));
+        ll.el.setAttribute("y", String(clamp(ll.y + dy, 0, H)));
       }
       return;
     }
@@ -932,7 +1130,8 @@ const svgPoint = (clientX: number, clientY: number) => {
   };
 
   const onPointerUp = (ev: PointerEvent) => {
-    if (!drag) return;
+    const dragSnapshot = drag;
+    if (!dragSnapshot) return;
 
     try {
       svg.releasePointerCapture(ev.pointerId);
@@ -940,8 +1139,93 @@ const svgPoint = (clientX: number, clientY: number) => {
       // ignore
     }
 
-    if (drag.kind === "entity" && currentDiagram) {
-      applyDeltaToSpec(drag.entity, drag.idx, drag.dx, drag.dy, drag.linkedPointIdx, drag.linkedLabelIdx);
+    if (dragSnapshot.kind === "entity" && currentDiagram) {
+      applyDeltaToSpec(
+        dragSnapshot.entity,
+        dragSnapshot.idx,
+        dragSnapshot.dx,
+        dragSnapshot.dy,
+        dragSnapshot.linkedPointIdx,
+        dragSnapshot.linkedLabelIdx
+      );
+    }
+
+    if (dragSnapshot.kind === "group" && currentDiagram) {
+      const movedPoints = new Set<number>();
+      const movedLabels = new Set<number>();
+
+      for (const it of dragSnapshot.items) {
+        if (it.kind === "label") {
+          const lab = currentDiagram.labels?.[it.idx];
+          if (!lab) continue;
+          lab.x = round(lab.x + dragSnapshot.dx);
+          lab.y = round(lab.y + dragSnapshot.dy);
+          movedLabels.add(it.idx);
+          continue;
+        }
+
+        if (it.kind === "rect") {
+          const r = currentDiagram.rects?.[it.idx];
+          if (!r) continue;
+          r.x = round(r.x + dragSnapshot.dx);
+          r.y = round(r.y + dragSnapshot.dy);
+          continue;
+        }
+
+        if (it.kind === "circle") {
+          const c = currentDiagram.circles?.[it.idx];
+          if (!c) continue;
+          c.cx = round(c.cx + dragSnapshot.dx);
+          c.cy = round(c.cy + dragSnapshot.dy);
+          continue;
+        }
+
+        if (it.kind === "ellipse") {
+          const e = currentDiagram.ellipses?.[it.idx];
+          if (!e) continue;
+          e.cx = round(e.cx + dragSnapshot.dx);
+          e.cy = round(e.cy + dragSnapshot.dy);
+          continue;
+        }
+
+        if (it.kind === "point") {
+          const p = currentDiagram.points?.[it.idx];
+          if (!p) continue;
+          p.at = [round(p.at[0] + dragSnapshot.dx), round(p.at[1] + dragSnapshot.dy)];
+          movedPoints.add(it.idx);
+          continue;
+        }
+
+        if (it.kind === "segment") {
+          const s = currentDiagram.segments?.[it.idx];
+          if (!s) continue;
+          s.a = [round(s.a[0] + dragSnapshot.dx), round(s.a[1] + dragSnapshot.dy)];
+          s.b = [round(s.b[0] + dragSnapshot.dx), round(s.b[1] + dragSnapshot.dy)];
+          continue;
+        }
+
+        if (it.kind === "polygon") {
+          const p = currentDiagram.polygons?.[it.idx];
+          if (!p) continue;
+          p.points = (p.points ?? []).map(([x, y]) => [round(x + dragSnapshot.dx), round(y + dragSnapshot.dy)]);
+          continue;
+        }
+      }
+
+      for (const lp of dragSnapshot.linkedPoints) {
+        if (movedPoints.has(lp.i)) continue;
+        const p = currentDiagram.points?.[lp.i];
+        if (!p) continue;
+        p.at = [round(p.at[0] + dragSnapshot.dx), round(p.at[1] + dragSnapshot.dy)];
+      }
+
+      for (const ll of dragSnapshot.linkedLabels) {
+        if (movedLabels.has(ll.i)) continue;
+        const l = currentDiagram.labels?.[ll.i];
+        if (!l) continue;
+        l.x = round(l.x + dragSnapshot.dx);
+        l.y = round(l.y + dragSnapshot.dy);
+      }
     }
 
     drag = null;

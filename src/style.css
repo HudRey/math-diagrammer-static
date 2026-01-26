@@ -310,6 +310,15 @@ details[open] summary::before { content: "v"; }
   user-select: none; 
 }
 
+#diagramSvg .selected > * {
+  stroke: #1b6cff;
+}
+
+#diagramSvg text.selected {
+  fill: #1b6cff;
+  font-weight: 700;
+}
+
 @media (max-width: 720px) {
   .layout {
     flex-direction: column;
