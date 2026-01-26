@@ -186,6 +186,7 @@ Non-negotiable rules:
   stroke="#000000", strokeWidth=3, fill="none", fontFamily="Arial, system-ui, sans-serif", fontSize=18, labelColor="#000000".
 - Keep ALL geometry and labels at least 40px from the edges (the server will clamp, but try to be correct).
 - Use simple, clean diagrams that print well. Avoid clutter.
+- Do NOT draw a bounding box, frame, or background rectangle unless the user explicitly asks for it.
 - You MAY choose reasonable numeric values when the user does not provide any.
   - Prefer clean integers or simple fractions.
   - If the user provides a variable or unknown (e.g., "x", "?"), keep it as text in labels.
@@ -357,7 +358,7 @@ function toPair(v: any, fallback: [number, number]): [number, number] {
   return [x, y];
 }
 
-function normalizeAndClamp(diagram: any) {
+function normalizeAndClamp(diagram: any, opts?: { allowRects?: boolean }) {
   if (!diagram || typeof diagram !== "object") {
     throw new Error("Model returned non-object diagram.");
   }
@@ -406,6 +407,15 @@ function normalizeAndClamp(diagram: any) {
       fill: str(r.fill, "none"),
     };
   });
+
+  // Optional: strip large frame rectangles when not requested
+  if (opts?.allowRects === false) {
+    const maxArea = (CANVAS_W * CANVAS_H) * 0.6;
+    diagram.rects = diagram.rects.filter((r: any) => {
+      const area = num(r.w, 0) * num(r.h, 0);
+      return area > 0 && area < maxArea;
+    });
+  }
 
   // Circles: clamp center
   diagram.circles = arr<any>(diagram.circles).map((c) => {
@@ -609,7 +619,8 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    const safeDiagram = normalizeAndClamp(diagram);
+    const mentionsRect = /(rectangle|square|rect|box|frame|border)/i.test(description);
+    const safeDiagram = normalizeAndClamp(diagram, { allowRects: mentionsRect });
 
     // --- Coordinate mapping override (deterministic) ---
     const parsed = parsePointPairsFromText(description);
