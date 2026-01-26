@@ -1,6 +1,7 @@
 import "./style.css";
 import { renderDiagramSVG, validateSpec, type DiagramSpec } from "./renderDiagram";
 import { PRODUCERS } from "./modes/all";
+import { templates, type Template } from "./templates";
 
 type StylePrefs = {
   stroke: string; // shape outline
@@ -22,7 +23,7 @@ app.innerHTML = `
     <header class="topbar">
       <div class="topbarLeft">
         <div class="brand">Math Diagrammer</div>
-        <div class="brandSub">Generate → drag → download</div>
+        <div class="brandSub">Generate -> drag -> download</div>
       </div>
 
       <nav class="topbarNav">
@@ -36,11 +37,32 @@ app.innerHTML = `
     <div class="layout">
       <div class="panel">
         <div class="title">Math Diagram Renderer</div>
-        <div class="sub">Describe your diagram → generate → drag → download.</div>
+        <div class="sub">Describe your diagram -> generate -> drag -> download.</div>
 
         <label>Diagram description
           <textarea id="desc" placeholder="Example: Draw a rectangle for a perimeter problem. Label top = 12 cm, left = 7 cm, right = 7 cm, bottom = x cm."></textarea>
         </label>
+
+        <details id="templatesPanel">
+          <summary>Templates</summary>
+          <div class="sectionBody">
+            <label>Search templates
+              <input id="templateSearch" type="text" placeholder="Search by name, id, or description" />
+            </label>
+            <label>Template list
+              <select id="templateList" size="8"></select>
+            </label>
+            <div class="row2">
+              <button id="useTemplate">Use prompt</button>
+              <button id="renderTemplate">Render starter</button>
+            </div>
+            <div class="row2">
+              <button id="clearTemplate">Clear template</button>
+              <div></div>
+            </div>
+            <div id="templateMeta" class="hint"></div>
+          </div>
+        </details>
 
         <label>Mode
           <select id="mode">
@@ -155,6 +177,12 @@ const btnExample = $("#example") as HTMLButtonElement;
 const btnApplyStyle = $("#applyStyle") as HTMLButtonElement;
 const btnDownloadSvg = $("#downloadSvg") as HTMLButtonElement;
 const btnDownloadPng = $("#downloadPng") as HTMLButtonElement;
+const templateSearchEl = $("#templateSearch") as HTMLInputElement;
+const templateListEl = $("#templateList") as HTMLSelectElement;
+const templateMetaEl = $("#templateMeta") as HTMLDivElement;
+const btnUseTemplate = $("#useTemplate") as HTMLButtonElement;
+const btnRenderTemplate = $("#renderTemplate") as HTMLButtonElement;
+const btnClearTemplate = $("#clearTemplate") as HTMLButtonElement;
 
 // NEW buttons
 const btnApplyCanvas = $("#applyCanvas") as HTMLButtonElement;
@@ -168,6 +196,7 @@ const canvasHeightEl = $("#canvasHeight") as HTMLInputElement;
 let currentDiagram: DiagramSpec | null = null;
 // NEW: snapshot of last generated (or last example) diagram for "Reset diagram"
 let baseDiagram: DiagramSpec | null = null;
+let activeTemplateId: string | null = null;
 const dragToggle = document.getElementById("enableDrag") as HTMLInputElement | null;
 dragToggle?.addEventListener("change", () => {
   if (!currentDiagram) return;
@@ -184,6 +213,27 @@ function setError(msg: string) {
 function clearMessages() {
   statusEl.textContent = "";
   errEl.textContent = "";
+}
+
+function setTemplateMeta(t: Template | null) {
+  if (!templateMetaEl) return;
+  if (!t) {
+    templateMetaEl.textContent = "No template selected.";
+    return;
+  }
+  templateMetaEl.textContent = `${t.id}  -  ${t.defaultDescription}`;
+}
+
+function setActiveTemplate(id: string | null) {
+  activeTemplateId = id;
+  const t = id ? templates.find((tpl) => tpl.id === id) ?? null : null;
+  setTemplateMeta(t);
+}
+
+function ensureDiagram2dMode() {
+  if (currentMode === "diagram2d") return;
+  modeEl.value = "diagram2d";
+  applyMode("diagram2d");
 }
 
 function getStylePrefs(): StylePrefs {
@@ -391,7 +441,7 @@ btnApplyCanvas.addEventListener("click", () => {
   // re-render locally (no token spend)
   mountDiagram(updated);
   resetViewRecenter();
-  setStatus(`Canvas resized to ${W}×${H}.`);
+  setStatus(`Canvas resized to ${W}x${H}.`);
 });
 
 btnResetDiagram.addEventListener("click", () => {
@@ -460,7 +510,7 @@ const svgPoint = (clientX: number, clientY: number) => {
 };
 
 
-  // Endpoint ↔ point matching tolerance
+  // Endpoint <-> point matching tolerance
   const ENDPOINT_EPS = 0.75;
   const samePt = (a: [number, number], b: [number, number]) =>
     Math.abs(a[0] - b[0]) <= ENDPOINT_EPS && Math.abs(a[1] - b[1]) <= ENDPOINT_EPS;
@@ -935,6 +985,99 @@ btnExample.addEventListener("click", () => {
   setStatus(`Example loaded for ${currentMode}. Click Generate.`);
 });
 
+function renderTemplateList(filter: string) {
+  const q = filter.trim().toLowerCase();
+  const items = templates.filter((t) => {
+    if (!q) return true;
+    return (
+      t.name.toLowerCase().includes(q) ||
+      t.id.toLowerCase().includes(q) ||
+      t.defaultDescription.toLowerCase().includes(q)
+    );
+  });
+
+  templateListEl.innerHTML = "";
+  if (items.length === 0) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "No templates found";
+    opt.disabled = true;
+    templateListEl.appendChild(opt);
+    setActiveTemplate(null);
+    return;
+  }
+
+  for (const t of items) {
+    const opt = document.createElement("option");
+    opt.value = t.id;
+    opt.textContent = t.name;
+    templateListEl.appendChild(opt);
+  }
+
+  if (activeTemplateId) {
+    const exists = items.some((t) => t.id === activeTemplateId);
+    if (!exists) setActiveTemplate(null);
+  }
+
+  if (!activeTemplateId) {
+    templateListEl.selectedIndex = 0;
+    setActiveTemplate(templateListEl.value);
+  } else {
+    templateListEl.value = activeTemplateId;
+  }
+}
+
+templateSearchEl.addEventListener("input", () => {
+  renderTemplateList(templateSearchEl.value);
+});
+
+templateListEl.addEventListener("change", () => {
+  const id = templateListEl.value || null;
+  setActiveTemplate(id);
+});
+
+btnUseTemplate.addEventListener("click", () => {
+  clearMessages();
+  const id = templateListEl.value || activeTemplateId;
+  const tmpl = templates.find((t) => t.id === id);
+  if (!tmpl) {
+    setError("Select a template first.");
+    return;
+  }
+  ensureDiagram2dMode();
+  setActiveTemplate(tmpl.id);
+  descEl.value = tmpl.defaultDescription;
+  setStatus(`Template loaded: ${tmpl.name}`);
+});
+
+btnRenderTemplate.addEventListener("click", () => {
+  clearMessages();
+  const id = templateListEl.value || activeTemplateId;
+  const tmpl = templates.find((t) => t.id === id);
+  if (!tmpl) {
+    setError("Select a template first.");
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(tmpl.starterJSON);
+    ensureDiagram2dMode();
+    mountDiagram(parsed, { setBase: true });
+    resetViewRecenter();
+    setActiveTemplate(tmpl.id);
+    setStatus(`Rendered starter: ${tmpl.name} (no tokens spent).`);
+  } catch (e: any) {
+    setError(`Failed to parse starter JSON: ${e?.message ?? String(e)}`);
+  }
+});
+
+btnClearTemplate.addEventListener("click", () => {
+  clearMessages();
+  setActiveTemplate(null);
+  templateListEl.selectedIndex = -1;
+  setStatus("Template cleared.");
+});
+
 
 btnApplyStyle.addEventListener("click", () => {
   clearMessages();
@@ -964,15 +1107,21 @@ btnGenerate.addEventListener("click", async () => {
   btnGenerate.disabled = true;
 
   try {
-    setStatus(currentMode === "diagram2d" ? "Generating…" : "Building…");
+    setStatus(currentMode === "diagram2d" ? "Generating..." : "Building...");
 
     // IMPORTANT: pick your producer (however you implemented this)
     // If you have PRODUCERS array:
     const producer = PRODUCERS.find((p) => p.mode === currentMode);
     if (!producer) throw new Error(`Unknown mode: ${currentMode}`);
 
+    let effectiveDescription = description;
+    if (currentMode === "diagram2d" && activeTemplateId) {
+      const tmpl = templates.find((t) => t.id === activeTemplateId);
+      if (tmpl) effectiveDescription = tmpl.promptBuilder(description);
+    }
+
     const diagram = await producer.produce({
-      description,
+      description: effectiveDescription,
       canvasWidth,
       canvasHeight,
       fetchDiagram: generateDiagram, // only used by diagram2dProducer
@@ -1041,6 +1190,7 @@ if (dragToggle) dragToggle.checked = m !== "graph";
 
 // initialize once on load
 applyMode(currentMode);
+renderTemplateList("");
 
 modeEl?.addEventListener("change", () => {
   clearMessages();
@@ -1078,6 +1228,16 @@ const prevent = (id: string, msg: string) => {
   });
 };
 
-prevent("linkTemplates", "Templates coming soon.");
+const templatesPanel = document.getElementById("templatesPanel") as HTMLDetailsElement | null;
+const linkTemplates = document.getElementById("linkTemplates");
+linkTemplates?.addEventListener("click", (e) => {
+  e.preventDefault();
+  if (templatesPanel) {
+    templatesPanel.open = true;
+    templatesPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  setStatus("Templates ready.");
+});
+
 prevent("linkDocs", "Docs coming soon.");
 prevent("linkAbout", "About page coming soon.");

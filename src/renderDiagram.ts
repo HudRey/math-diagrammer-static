@@ -23,6 +23,7 @@ export type DiagramSpec = {
     b: [number, number];
     stroke?: string;
     strokeWidth?: number;
+    dash?: string;
   }[];
 
   rects?: {
@@ -276,11 +277,13 @@ export function renderDiagramSVG(spec: DiagramSpec) {
       const [x2, y2] = seg.b ?? [0, 0];
       const stroke = s(seg.stroke, defStroke);
       const sw = n(seg.strokeWidth, defStrokeWidth);
+      const dash = typeof seg.dash === "string" && seg.dash.trim() ? seg.dash.trim() : "";
 
+      const dashAttr = dash ? ` stroke-dasharray="${esc(dash)}"` : "";
       const inner = `<line x1="${n(x1, 0)}" y1="${n(y1, 0)}" x2="${n(x2, 0)}" y2="${n(
         y2,
         0
-      )}" stroke="${stroke}" stroke-width="${sw}" />`;
+      )}" stroke="${stroke}" stroke-width="${sw}"${dashAttr} />`;
       return wrap("segment", i, inner);
     })
     .join("\n");

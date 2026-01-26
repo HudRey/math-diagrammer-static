@@ -128,6 +128,7 @@ const DIAGRAM_SCHEMA = {
             b: { type: "array", minItems: 2, maxItems: 2, items: { type: "number" } },
             stroke: { type: "string" },
             strokeWidth: { type: "number" },
+            dash: { type: "string" },
           },
           required: ["a", "b", "stroke", "strokeWidth"],
         },
@@ -185,9 +186,10 @@ Non-negotiable rules:
   stroke="#000000", strokeWidth=3, fill="none", fontFamily="Arial, system-ui, sans-serif", fontSize=18, labelColor="#000000".
 - Keep ALL geometry and labels at least 40px from the edges (the server will clamp, but try to be correct).
 - Use simple, clean diagrams that print well. Avoid clutter.
-- Do NOT invent numeric values the user did not provide.
-  - If the user says "x" or "unknown", show that exact text in a label.
-  - If no numbers are given, use generic labels (like "x", "y", "?" or names like "A", "B") rather than making up measurements.
+- You MAY choose reasonable numeric values when the user does not provide any.
+  - Prefer clean integers or simple fractions.
+  - If the user provides a variable or unknown (e.g., "x", "?"), keep it as text in labels.
+  - If no numbers are given, choose sensible sizes and still label vertices/sides clearly.
 - Prefer rectangles/segments/labels for Pre-Algebra diagrams unless the user explicitly asks for something else.
 - If the user asks to plot points or connect points:
   - You MUST output:
@@ -195,11 +197,12 @@ Non-negotiable rules:
     - segments: at least one connecting segment in "segments"
     - labels: point labels near the markers
   - Do NOT draw axes unless explicitly requested.
-  - Place the two points near the center with clear separation (roughly 200–350px apart).
+  - Place the two points near the center with clear separation (roughly 200-350px apart).
 - For triangles or polygons, label vertices with capital letters (A, B, C, ...).
 - For rectangles, label sides with measurements (like "7 cm") and place labels near the sides.
 - For rects, ALWAYS include rx and ry (use 0 if not rounded).
 - Use the defaults for any missing style properties in shapes/labels.
+- For dashed lines (e.g., altitudes), use segment property dash like "6 6".
 - Follow the schema EXACTLY. Do NOT add extra properties.
 
 Few-shot examples (learn the pattern and apply it):
@@ -218,6 +221,51 @@ EXAMPLE 3:
 User: Draw a triangle with vertices A, B, and C.
 Output:
 {"canvas":{"width":900,"height":450,"bg":"#ffffff"},"defaults":{"stroke":"#000000","strokeWidth":3,"fill":"none","fontFamily":"Arial, system-ui, sans-serif","fontSize":18,"labelColor":"#000000"},"rects":[],"circles":[],"ellipses":[],"polygons":[{"points":[[320,320],[600,320],[460,140]],"stroke":"#000000","strokeWidth":3,"fill":"none"}],"segments":[],"points":[{"at":[320,320],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[600,320],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[460,140],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1}],"labels":[{"text":"A","x":300,"y":335,"color":"#000000","fontSize":18,"bold":true},{"text":"B","x":620,"y":335,"color":"#000000","fontSize":18,"bold":true},{"text":"C","x":460,"y":115,"color":"#000000","fontSize":18,"bold":true}]}
+
+EXAMPLE 4:
+User: Give me two triangles, rotated in different directions with their vertices labeled.
+Output:
+{"canvas":{"width":900,"height":450,"bg":"#ffffff"},"defaults":{"stroke":"#000000","strokeWidth":3,"fill":"none","fontFamily":"Arial, system-ui, sans-serif","fontSize":18,"labelColor":"#000000"},"rects":[],"circles":[],"ellipses":[],"polygons":[{"points":[[200,330],[320,140],[400,300]],"stroke":"#000000","strokeWidth":3,"fill":"none"},{"points":[[560,120],[740,220],[600,360]],"stroke":"#000000","strokeWidth":3,"fill":"none"}],"segments":[],"points":[{"at":[200,330],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[320,140],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[400,300],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[560,120],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[740,220],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[600,360],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1}],"labels":[{"text":"A","x":180,"y":345,"color":"#000000","fontSize":18,"bold":true},{"text":"B","x":330,"y":125,"color":"#000000","fontSize":18,"bold":true},{"text":"C","x":410,"y":315,"color":"#000000","fontSize":18,"bold":true},{"text":"D","x":540,"y":105,"color":"#000000","fontSize":18,"bold":true},{"text":"E","x":755,"y":220,"color":"#000000","fontSize":18,"bold":true},{"text":"F","x":610,"y":380,"color":"#000000","fontSize":18,"bold":true}]}
+
+EXAMPLE 5:
+User: Two rectangles to find the perimeter of each, know that the sides in the smaller rectangle are x + 4, and 5 and the other is double the first.
+Output:
+{"canvas":{"width":900,"height":450,"bg":"#ffffff"},"defaults":{"stroke":"#000000","strokeWidth":3,"fill":"none","fontFamily":"Arial, system-ui, sans-serif","fontSize":18,"labelColor":"#000000"},"rects":[{"x":140,"y":150,"w":220,"h":140,"stroke":"#000000","strokeWidth":3,"fill":"none","rx":0,"ry":0},{"x":520,"y":110,"w":440,"h":280,"stroke":"#000000","strokeWidth":3,"fill":"none","rx":0,"ry":0}],"circles":[],"ellipses":[],"polygons":[],"segments":[],"points":[],"labels":[{"text":"x + 4","x":250,"y":135,"color":"#000000","fontSize":18,"bold":true},{"text":"x + 4","x":250,"y":310,"color":"#000000","fontSize":18,"bold":true},{"text":"5","x":125,"y":220,"color":"#000000","fontSize":18,"bold":true},{"text":"5","x":370,"y":220,"color":"#000000","fontSize":18,"bold":true},{"text":"2(x + 4)","x":740,"y":95,"color":"#000000","fontSize":18,"bold":true},{"text":"2(x + 4)","x":740,"y":405,"color":"#000000","fontSize":18,"bold":true},{"text":"10","x":500,"y":250,"color":"#000000","fontSize":18,"bold":true},{"text":"10","x":975,"y":250,"color":"#000000","fontSize":18,"bold":true}]}
+
+EXAMPLE 6:
+User: A circle with a sector 1/3 of the circle, with a radius of 4cm.
+Output:
+{"canvas":{"width":900,"height":450,"bg":"#ffffff"},"defaults":{"stroke":"#000000","strokeWidth":3,"fill":"none","fontFamily":"Arial, system-ui, sans-serif","fontSize":18,"labelColor":"#000000"},"rects":[],"circles":[{"cx":450,"cy":225,"r":150,"stroke":"#000000","strokeWidth":3,"fill":"none"}],"ellipses":[],"polygons":[{"points":[[450,225],[600,225],[375,95]],"stroke":"#000000","strokeWidth":3,"fill":"none"}],"segments":[{"a":[450,225],"b":[600,225],"stroke":"#000000","strokeWidth":3},{"a":[450,225],"b":[375,95],"stroke":"#000000","strokeWidth":3}],"points":[{"at":[450,225],"r":4,"fill":"#000000","stroke":"none","strokeWidth":1}],"labels":[{"text":"r = 4 cm","x":520,"y":205,"color":"#000000","fontSize":18,"bold":true},{"text":"1/3 sector","x":470,"y":120,"color":"#000000","fontSize":18,"bold":false}]}
+
+EXAMPLE 7:
+User: A right trapezoid.
+Output:
+{"canvas":{"width":900,"height":450,"bg":"#ffffff"},"defaults":{"stroke":"#000000","strokeWidth":3,"fill":"none","fontFamily":"Arial, system-ui, sans-serif","fontSize":18,"labelColor":"#000000"},"rects":[],"circles":[],"ellipses":[],"polygons":[{"points":[[260,320],[260,150],[610,150],[720,320]],"stroke":"#000000","strokeWidth":3,"fill":"none"}],"segments":[{"a":[260,300],"b":[280,300],"stroke":"#000000","strokeWidth":3},{"a":[280,300],"b":[280,320],"stroke":"#000000","strokeWidth":3}],"points":[],"labels":[{"text":"A","x":240,"y":335,"color":"#000000","fontSize":18,"bold":true},{"text":"B","x":240,"y":135,"color":"#000000","fontSize":18,"bold":true},{"text":"C","x":615,"y":135,"color":"#000000","fontSize":18,"bold":true},{"text":"D","x":735,"y":335,"color":"#000000","fontSize":18,"bold":true}]}
+
+EXAMPLE 8:
+User: A hexagon with a line going from its center to one of its vertices that is 3 cm, and one side length of 2 cm. Make sure the altitude from the center to one of its bases is marked with a dashed line.
+Output:
+{"canvas":{"width":900,"height":450,"bg":"#ffffff"},"defaults":{"stroke":"#000000","strokeWidth":3,"fill":"none","fontFamily":"Arial, system-ui, sans-serif","fontSize":18,"labelColor":"#000000"},"rects":[],"circles":[],"ellipses":[],"polygons":[{"points":[[450,110],[560,170],[560,290],[450,350],[340,290],[340,170]],"stroke":"#000000","strokeWidth":3,"fill":"none"}],"segments":[{"a":[450,225],"b":[560,170],"stroke":"#000000","strokeWidth":3},{"a":[450,225],"b":[450,130],"stroke":"#000000","strokeWidth":3,"dash":"6 6"}],"points":[{"at":[450,225],"r":4,"fill":"#000000","stroke":"none","strokeWidth":1}],"labels":[{"text":"O","x":430,"y":245,"color":"#000000","fontSize":18,"bold":true},{"text":"3 cm","x":520,"y":160,"color":"#000000","fontSize":18,"bold":true},{"text":"2 cm","x":510,"y":320,"color":"#000000","fontSize":18,"bold":true},{"text":"altitude (dashed)","x":470,"y":175,"color":"#000000","fontSize":16,"bold":false}]}
+
+EXAMPLE 9:
+User: Draw a triangle with a dashed altitude from vertex C to side AB. Label A, B, C.
+Output:
+{"canvas":{"width":900,"height":450,"bg":"#ffffff"},"defaults":{"stroke":"#000000","strokeWidth":3,"fill":"none","fontFamily":"Arial, system-ui, sans-serif","fontSize":18,"labelColor":"#000000"},"rects":[],"circles":[],"ellipses":[],"polygons":[{"points":[[260,320],[640,320],[460,130]],"stroke":"#000000","strokeWidth":3,"fill":"none"}],"segments":[{"a":[460,130],"b":[460,320],"stroke":"#000000","strokeWidth":3,"dash":"6 6"},{"a":[450,300],"b":[470,300],"stroke":"#000000","strokeWidth":3},{"a":[470,300],"b":[470,320],"stroke":"#000000","strokeWidth":3}],"points":[{"at":[260,320],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[640,320],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[460,130],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1}],"labels":[{"text":"A","x":245,"y":335,"color":"#000000","fontSize":18,"bold":true},{"text":"B","x":660,"y":335,"color":"#000000","fontSize":18,"bold":true},{"text":"C","x":460,"y":105,"color":"#000000","fontSize":18,"bold":true}]}
+
+EXAMPLE 10:
+User: Give me two similar triangles, triangle ABC and triangle XYZ, where AB = 6 cm, BC = 9 cm, and XY = 10 cm corresponds to AB. Find YZ if YZ corresponds to BC.
+Output:
+{"canvas":{"width":900,"height":450,"bg":"#ffffff"},"defaults":{"stroke":"#000000","strokeWidth":3,"fill":"none","fontFamily":"Arial, system-ui, sans-serif","fontSize":18,"labelColor":"#000000"},"rects":[],"circles":[],"ellipses":[],"polygons":[{"points":[[180,320],[300,140],[380,320]],"stroke":"#000000","strokeWidth":3,"fill":"none"},{"points":[[560,340],[680,120],[780,340]],"stroke":"#000000","strokeWidth":3,"fill":"none"}],"segments":[],"points":[{"at":[180,320],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[300,140],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[380,320],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[560,340],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[680,120],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[780,340],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1}],"labels":[{"text":"A","x":165,"y":340,"color":"#000000","fontSize":18,"bold":true},{"text":"B","x":310,"y":125,"color":"#000000","fontSize":18,"bold":true},{"text":"C","x":390,"y":340,"color":"#000000","fontSize":18,"bold":true},{"text":"X","x":545,"y":360,"color":"#000000","fontSize":18,"bold":true},{"text":"Y","x":690,"y":105,"color":"#000000","fontSize":18,"bold":true},{"text":"Z","x":790,"y":360,"color":"#000000","fontSize":18,"bold":true},{"text":"6 cm","x":240,"y":330,"color":"#000000","fontSize":18,"bold":true},{"text":"9 cm","x":350,"y":240,"color":"#000000","fontSize":18,"bold":true},{"text":"10 cm","x":650,"y":350,"color":"#000000","fontSize":18,"bold":true},{"text":"?","x":745,"y":250,"color":"#000000","fontSize":18,"bold":true}]}
+
+EXAMPLE 11:
+User: Two parallel lines are cut by a transversal. One angle is (3x + 10) deg, its alternate interior angle is (5x - 30) deg. Solve for x and find the angle.
+Output:
+{"canvas":{"width":900,"height":450,"bg":"#ffffff"},"defaults":{"stroke":"#000000","strokeWidth":3,"fill":"none","fontFamily":"Arial, system-ui, sans-serif","fontSize":18,"labelColor":"#000000"},"rects":[],"circles":[],"ellipses":[],"polygons":[],"segments":[{"a":[180,160],"b":[740,160],"stroke":"#000000","strokeWidth":3},{"a":[180,320],"b":[740,320],"stroke":"#000000","strokeWidth":3},{"a":[320,90],"b":[600,380],"stroke":"#000000","strokeWidth":3}],"points":[],"labels":[{"text":"(3x + 10) deg","x":360,"y":190,"color":"#000000","fontSize":18,"bold":true},{"text":"(5x - 30) deg","x":520,"y":290,"color":"#000000","fontSize":18,"bold":true}]}
+
+EXAMPLE 12:
+User: Plot triangle ABC with A(0,0), B(6,0), C(2,4). Find area and perimeter.
+Output:
+{"canvas":{"width":900,"height":450,"bg":"#ffffff"},"defaults":{"stroke":"#000000","strokeWidth":3,"fill":"none","fontFamily":"Arial, system-ui, sans-serif","fontSize":18,"labelColor":"#000000"},"rects":[],"circles":[],"ellipses":[],"polygons":[],"segments":[{"a":[100,225],"b":[800,225],"stroke":"#000000","strokeWidth":3},{"a":[450,60],"b":[450,390],"stroke":"#000000","strokeWidth":3},{"a":[450,225],"b":[630,225],"stroke":"#000000","strokeWidth":3},{"a":[630,225],"b":[510,135],"stroke":"#000000","strokeWidth":3},{"a":[510,135],"b":[450,225],"stroke":"#000000","strokeWidth":3}],"points":[{"at":[450,225],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[630,225],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1},{"at":[510,135],"r":5,"fill":"#000000","stroke":"none","strokeWidth":1}],"labels":[{"text":"A(0,0)","x":430,"y":240,"color":"#000000","fontSize":18,"bold":false},{"text":"B(6,0)","x":650,"y":240,"color":"#000000","fontSize":18,"bold":false},{"text":"C(2,4)","x":510,"y":115,"color":"#000000","fontSize":18,"bold":false}]}
 `.trim();
 }
 
@@ -400,12 +448,14 @@ function normalizeAndClamp(diagram: any) {
       const ay = clamp(a[1], yLo, yHi);
       const bx = clamp(b[0], xLo, xHi);
       const by = clamp(b[1], yLo, yHi);
+      const dash = typeof seg?.dash === "string" && seg.dash.trim() ? seg.dash.trim() : undefined;
       return {
         ...seg,
         a: [ax, ay],
         b: [bx, by],
         stroke: str(seg?.stroke, "#000000"),
         strokeWidth: num(seg?.strokeWidth, 3),
+        ...(dash ? { dash } : {}),
       };
     })
     .filter((seg) => seg.a[0] !== seg.b[0] || seg.a[1] !== seg.b[1]);

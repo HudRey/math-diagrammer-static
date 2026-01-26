@@ -163,6 +163,29 @@ input[type="number"] {
   box-sizing: border-box;
 }
 
+input[type="text"] {
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid #ccc;
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+
+select {
+  width: 100%;
+  border: 1px solid #ccc;
+  border-radius: 10px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  background: #fff;
+  font-size: 12px;
+}
+
+#templateList {
+  height: 220px;
+}
+
 button {
   width: 100%;
   margin-top: 10px;
@@ -218,7 +241,7 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
   padding: 16px;
 
   display: flex;
-  align-items: flex-start;   /* don’t vertically center huge diagrams */
+  align-items: flex-start;   /* don't vertically center huge diagrams */
   justify-content: center;   /* horizontal centering is fine */
 }
 
@@ -263,13 +286,13 @@ summary {
 summary::-webkit-details-marker { display: none; }
 
 summary::before {
-  content: "▸";
+  content: ">";
   display: inline-block;
   margin-right: 8px;
   transform: translateY(-1px);
 }
 
-details[open] summary::before { content: "▾"; }
+details[open] summary::before { content: "v"; }
 
 .sectionBody { margin-top: 10px; }
 
