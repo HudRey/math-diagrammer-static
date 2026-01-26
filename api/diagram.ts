@@ -786,19 +786,148 @@ export default async function handler(req: any, res: any) {
     );
     let safeDiagram = normalizeAndClamp(diagram, { allowRects: mentionsRect, allowTouching: allowsTouching });
 
+    // --- Generic layout for "two <shape>" prompts (place left/right with gap) ---
+    const wantsTwo = /(two|2)\s+/i.test(description);
+    if (wantsTwo && !allowsTouching) {
+      const xLo = MARGIN;
+      const xHi = CANVAS_W - MARGIN;
+      const yLo = MARGIN;
+      const yHi = CANVAS_H - MARGIN;
+
+      const leftBox = { minX: xLo + 20, maxX: 380, minY: 120, maxY: 330 };
+      const rightBox = { minX: 520, maxX: xHi - 20, minY: 120, maxY: 330 };
+
+      const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+      const moveAssociated = (box: { minX: number; minY: number; maxX: number; maxY: number }, dx: number, dy: number) => {
+        const pad = 18;
+        const b = {
+          minX: box.minX - pad,
+          minY: box.minY - pad,
+          maxX: box.maxX + pad,
+          maxY: box.maxY + pad,
+        };
+
+        safeDiagram.labels = (safeDiagram.labels ?? []).map((l: any) => {
+          if (l.x >= b.minX && l.x <= b.maxX && l.y >= b.minY && l.y <= b.maxY) {
+            return { ...l, x: clamp(l.x + dx, xLo, xHi), y: clamp(l.y + dy, yLo, yHi) };
+          }
+          return l;
+        });
+
+        safeDiagram.points = (safeDiagram.points ?? []).map((p: any) => {
+          const at = toPair(p?.at, [0, 0]);
+          if (at[0] >= b.minX && at[0] <= b.maxX && at[1] >= b.minY && at[1] <= b.maxY) {
+            return { ...p, at: [clamp(at[0] + dx, xLo, xHi), clamp(at[1] + dy, yLo, yHi)] };
+          }
+          return p;
+        });
+
+        safeDiagram.segments = (safeDiagram.segments ?? []).map((s: any) => {
+          const a = toPair(s?.a, [0, 0]);
+          const b2 = toPair(s?.b, [0, 0]);
+          const aIn = a[0] >= b.minX && a[0] <= b.maxX && a[1] >= b.minY && a[1] <= b.maxY;
+          const bIn = b2[0] >= b.minX && b2[0] <= b.maxX && b2[1] >= b.minY && b2[1] <= b.maxY;
+          if (aIn && bIn) {
+            return {
+              ...s,
+              a: [clamp(a[0] + dx, xLo, xHi), clamp(a[1] + dy, yLo, yHi)],
+              b: [clamp(b2[0] + dx, xLo, xHi), clamp(b2[1] + dy, yLo, yHi)],
+            };
+          }
+          return s;
+        });
+      };
+
+      const placeBBox = (bbox: { minX: number; minY: number; maxX: number; maxY: number }, box: typeof leftBox) => {
+        const cx = (bbox.minX + bbox.maxX) / 2;
+        const cy = (bbox.minY + bbox.maxY) / 2;
+        const tx = clamp((box.minX + box.maxX) / 2, xLo, xHi);
+        const ty = clamp((box.minY + box.maxY) / 2, yLo, yHi);
+        return { dx: tx - cx, dy: ty - cy };
+      };
+
+      if (/two\s+(rectangles|rectangle|squares|square)/i.test(description) && (safeDiagram.rects?.length ?? 0) >= 2) {
+        const r1 = safeDiagram.rects![0];
+        const r2 = safeDiagram.rects![1];
+        const b1 = { minX: r1.x, minY: r1.y, maxX: r1.x + r1.w, maxY: r1.y + r1.h };
+        const b2 = { minX: r2.x, minY: r2.y, maxX: r2.x + r2.w, maxY: r2.y + r2.h };
+        const d1 = placeBBox(b1, leftBox);
+        const d2 = placeBBox(b2, rightBox);
+        r1.x = clamp(r1.x + d1.dx, xLo, xHi - r1.w);
+        r1.y = clamp(r1.y + d1.dy, yLo, yHi - r1.h);
+        r2.x = clamp(r2.x + d2.dx, xLo, xHi - r2.w);
+        r2.y = clamp(r2.y + d2.dy, yLo, yHi - r2.h);
+        moveAssociated(b1, d1.dx, d1.dy);
+        moveAssociated(b2, d2.dx, d2.dy);
+      }
+
+      if (/two\s+(circles|circle)/i.test(description) && (safeDiagram.circles?.length ?? 0) >= 2) {
+        const c1 = safeDiagram.circles![0];
+        const c2 = safeDiagram.circles![1];
+        const b1 = { minX: c1.cx - c1.r, minY: c1.cy - c1.r, maxX: c1.cx + c1.r, maxY: c1.cy + c1.r };
+        const b2 = { minX: c2.cx - c2.r, minY: c2.cy - c2.r, maxX: c2.cx + c2.r, maxY: c2.cy + c2.r };
+        const d1 = placeBBox(b1, leftBox);
+        const d2 = placeBBox(b2, rightBox);
+        c1.cx = clamp(c1.cx + d1.dx, xLo + c1.r, xHi - c1.r);
+        c1.cy = clamp(c1.cy + d1.dy, yLo + c1.r, yHi - c1.r);
+        c2.cx = clamp(c2.cx + d2.dx, xLo + c2.r, xHi - c2.r);
+        c2.cy = clamp(c2.cy + d2.dy, yLo + c2.r, yHi - c2.r);
+        moveAssociated(b1, d1.dx, d1.dy);
+        moveAssociated(b2, d2.dx, d2.dy);
+      }
+
+      if (/two\s+(ellipses|ellipse)/i.test(description) && (safeDiagram.ellipses?.length ?? 0) >= 2) {
+        const e1 = safeDiagram.ellipses![0];
+        const e2 = safeDiagram.ellipses![1];
+        const b1 = { minX: e1.cx - e1.rx, minY: e1.cy - e1.ry, maxX: e1.cx + e1.rx, maxY: e1.cy + e1.ry };
+        const b2 = { minX: e2.cx - e2.rx, minY: e2.cy - e2.ry, maxX: e2.cx + e2.rx, maxY: e2.cy + e2.ry };
+        const d1 = placeBBox(b1, leftBox);
+        const d2 = placeBBox(b2, rightBox);
+        e1.cx = clamp(e1.cx + d1.dx, xLo + e1.rx, xHi - e1.rx);
+        e1.cy = clamp(e1.cy + d1.dy, yLo + e1.ry, yHi - e1.ry);
+        e2.cx = clamp(e2.cx + d2.dx, xLo + e2.rx, xHi - e2.rx);
+        e2.cy = clamp(e2.cy + d2.dy, yLo + e2.ry, yHi - e2.ry);
+        moveAssociated(b1, d1.dx, d1.dy);
+        moveAssociated(b2, d2.dx, d2.dy);
+      }
+
+      if (/two\s+(polygons|polygon|triangles|triangle|hexagons|hexagon)/i.test(description) && (safeDiagram.polygons?.length ?? 0) >= 2) {
+        const p1 = safeDiagram.polygons![0];
+        const p2 = safeDiagram.polygons![1];
+        const pts1 = arr<any>(p1.points).map((pt) => toPair(pt, [0, 0]));
+        const pts2 = arr<any>(p2.points).map((pt) => toPair(pt, [0, 0]));
+        if (pts1.length && pts2.length) {
+          const xs1 = pts1.map((q) => q[0]);
+          const ys1 = pts1.map((q) => q[1]);
+          const xs2 = pts2.map((q) => q[0]);
+          const ys2 = pts2.map((q) => q[1]);
+          const b1 = { minX: Math.min(...xs1), minY: Math.min(...ys1), maxX: Math.max(...xs1), maxY: Math.max(...ys1) };
+          const b2 = { minX: Math.min(...xs2), minY: Math.min(...ys2), maxX: Math.max(...xs2), maxY: Math.max(...ys2) };
+          const d1 = placeBBox(b1, leftBox);
+          const d2 = placeBBox(b2, rightBox);
+          p1.points = pts1.map(([x, y]) => [clamp(x + d1.dx, xLo, xHi), clamp(y + d1.dy, yLo, yHi)]);
+          p2.points = pts2.map(([x, y]) => [clamp(x + d2.dx, xLo, xHi), clamp(y + d2.dy, yLo, yHi)]);
+          moveAssociated(b1, d1.dx, d1.dy);
+          moveAssociated(b2, d2.dx, d2.dy);
+        }
+      }
+    }
+
     // --- Special-case: two reflected triangles ---
     const wantsTwoTriangles = /two\s+triangles?/i.test(description);
     const wantsReflection = /(reflect|reflected|mirror|mirrored)/i.test(description);
     if (wantsTwoTriangles && wantsReflection) {
+      // Deterministic mirrored pair with a clear gap between shapes
       const left = [
-        [260, 310],
-        [420, 150],
-        [520, 310],
+        [180, 310],
+        [320, 150],
+        [420, 310],
       ];
       const right = [
-        [640, 310],
-        [480, 150],
-        [380, 310],
+        [780, 310],
+        [640, 150],
+        [540, 310],
       ];
 
       // base labels from prompt
@@ -818,14 +947,14 @@ export default async function handler(req: any, res: any) {
         segments: [],
         points: [],
         labels: [
-          { text: "A", x: 245, y: 330, color: "#000000", fontSize: 18, bold: true },
-          { text: "B", x: 420, y: 135, color: "#000000", fontSize: 18, bold: true },
-          { text: "C", x: 535, y: 330, color: "#000000", fontSize: 18, bold: true },
-          { text: "D", x: 655, y: 330, color: "#000000", fontSize: 18, bold: true },
-          { text: "E", x: 480, y: 135, color: "#000000", fontSize: 18, bold: true },
-          { text: "F", x: 365, y: 330, color: "#000000", fontSize: 18, bold: true },
-          { text: base1, x: 390, y: 340, color: "#000000", fontSize: 18, bold: true },
-          { text: base2, x: 520, y: 340, color: "#000000", fontSize: 18, bold: true },
+          { text: "A", x: 165, y: 330, color: "#000000", fontSize: 18, bold: true },
+          { text: "B", x: 320, y: 135, color: "#000000", fontSize: 18, bold: true },
+          { text: "C", x: 435, y: 330, color: "#000000", fontSize: 18, bold: true },
+          { text: "D", x: 795, y: 330, color: "#000000", fontSize: 18, bold: true },
+          { text: "E", x: 640, y: 135, color: "#000000", fontSize: 18, bold: true },
+          { text: "F", x: 525, y: 330, color: "#000000", fontSize: 18, bold: true },
+          { text: base1, x: 300, y: 340, color: "#000000", fontSize: 18, bold: true },
+          { text: base2, x: 660, y: 340, color: "#000000", fontSize: 18, bold: true },
         ],
       };
     }
