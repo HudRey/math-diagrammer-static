@@ -187,6 +187,7 @@ Non-negotiable rules:
 - Keep ALL geometry and labels at least 40px from the edges (the server will clamp, but try to be correct).
 - Use simple, clean diagrams that print well. Avoid clutter.
 - Do NOT draw a bounding box, frame, or background rectangle unless the user explicitly asks for it.
+- When multiple shapes are requested, leave clear space between them unless the user explicitly says they touch/overlap/intersect or share edges/vertices.
 - You MAY choose reasonable numeric values when the user does not provide any.
   - Prefer clean integers or simple fractions.
   - If the user provides a variable or unknown (e.g., "x", "?"), keep it as text in labels.
@@ -358,7 +359,7 @@ function toPair(v: any, fallback: [number, number]): [number, number] {
   return [x, y];
 }
 
-function normalizeAndClamp(diagram: any, opts?: { allowRects?: boolean }) {
+function normalizeAndClamp(diagram: any, opts?: { allowRects?: boolean; allowTouching?: boolean }) {
   if (!diagram || typeof diagram !== "object") {
     throw new Error("Model returned non-object diagram.");
   }
@@ -564,6 +565,170 @@ function normalizeAndClamp(diagram: any, opts?: { allowRects?: boolean }) {
     }
   }
 
+  // --- Enforce spacing between shapes unless touching is explicitly allowed ---
+  if (opts?.allowTouching === false) {
+    const gap = 30;
+    const pad = 20;
+
+    type BBox = { minX: number; minY: number; maxX: number; maxY: number };
+    const bboxOverlap = (a: BBox, b: BBox) =>
+      a.minX < b.maxX + gap && a.maxX > b.minX - gap && a.minY < b.maxY + gap && a.maxY > b.minY - gap;
+    const expand = (b: BBox, d: number): BBox => ({
+      minX: b.minX - d,
+      minY: b.minY - d,
+      maxX: b.maxX + d,
+      maxY: b.maxY + d,
+    });
+
+    const clampBoxDelta = (b: BBox, dx: number, dy: number) => {
+      const nx1 = clamp(b.minX + dx, xLo, xHi);
+      const nx2 = clamp(b.maxX + dx, xLo, xHi);
+      const ny1 = clamp(b.minY + dy, yLo, yHi);
+      const ny2 = clamp(b.maxY + dy, yLo, yHi);
+      return { dx: nx1 - b.minX, dy: ny1 - b.minY, nx1, nx2, ny1, ny2 };
+    };
+
+    const moveAssociated = (box: BBox, dx: number, dy: number) => {
+      const b = expand(box, pad);
+
+      diagram.labels = (diagram.labels ?? []).map((l: any) => {
+        if (l.x >= b.minX && l.x <= b.maxX && l.y >= b.minY && l.y <= b.maxY) {
+          return { ...l, x: clamp(l.x + dx, xLo, xHi), y: clamp(l.y + dy, yLo, yHi) };
+        }
+        return l;
+      });
+
+      diagram.points = (diagram.points ?? []).map((p: any) => {
+        const [px, py] = toPair(p?.at, [0, 0]);
+        if (px >= b.minX && px <= b.maxX && py >= b.minY && py <= b.maxY) {
+          return { ...p, at: [clamp(px + dx, xLo, xHi), clamp(py + dy, yLo, yHi)] };
+        }
+        return p;
+      });
+
+      diagram.segments = (diagram.segments ?? []).map((s: any) => {
+        const a = toPair(s?.a, [0, 0]);
+        const b2 = toPair(s?.b, [0, 0]);
+        const aIn = a[0] >= b.minX && a[0] <= b.maxX && a[1] >= b.minY && a[1] <= b.maxY;
+        const bIn = b2[0] >= b.minX && b2[0] <= b.maxX && b2[1] >= b.minY && b2[1] <= b.maxY;
+        if (aIn && bIn) {
+          return {
+            ...s,
+            a: [clamp(a[0] + dx, xLo, xHi), clamp(a[1] + dy, yLo, yHi)],
+            b: [clamp(b2[0] + dx, xLo, xHi), clamp(b2[1] + dy, yLo, yHi)],
+          };
+        }
+        return s;
+      });
+    };
+
+    type Shape = {
+      kind: "rect" | "poly" | "circle" | "ellipse";
+      idx: number;
+      bbox: BBox;
+      move: (dx: number, dy: number) => void;
+    };
+
+    const shapes: Shape[] = [];
+
+    (diagram.rects ?? []).forEach((r: any, i: number) => {
+      const b = { minX: r.x, minY: r.y, maxX: r.x + r.w, maxY: r.y + r.h };
+      shapes.push({
+        kind: "rect",
+        idx: i,
+        bbox: b,
+        move: (dx, dy) => {
+          r.x = clamp(r.x + dx, xLo, xHi - r.w);
+          r.y = clamp(r.y + dy, yLo, yHi - r.h);
+        },
+      });
+    });
+
+    (diagram.polygons ?? []).forEach((p: any, i: number) => {
+      const pts = arr<any>(p.points).map((pt) => toPair(pt, [0, 0]));
+      if (!pts.length) return;
+      const xs = pts.map((q) => q[0]);
+      const ys = pts.map((q) => q[1]);
+      const b = { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+      shapes.push({
+        kind: "poly",
+        idx: i,
+        bbox: b,
+        move: (dx, dy) => {
+          p.points = pts.map(([x, y]) => [clamp(x + dx, xLo, xHi), clamp(y + dy, yLo, yHi)]);
+        },
+      });
+    });
+
+    (diagram.circles ?? []).forEach((c: any, i: number) => {
+      const b = { minX: c.cx - c.r, minY: c.cy - c.r, maxX: c.cx + c.r, maxY: c.cy + c.r };
+      shapes.push({
+        kind: "circle",
+        idx: i,
+        bbox: b,
+        move: (dx, dy) => {
+          c.cx = clamp(c.cx + dx, xLo + c.r, xHi - c.r);
+          c.cy = clamp(c.cy + dy, yLo + c.r, yHi - c.r);
+        },
+      });
+    });
+
+    (diagram.ellipses ?? []).forEach((e: any, i: number) => {
+      const b = { minX: e.cx - e.rx, minY: e.cy - e.ry, maxX: e.cx + e.rx, maxY: e.cy + e.ry };
+      shapes.push({
+        kind: "ellipse",
+        idx: i,
+        bbox: b,
+        move: (dx, dy) => {
+          e.cx = clamp(e.cx + dx, xLo + e.rx, xHi - e.rx);
+          e.cy = clamp(e.cy + dy, yLo + e.ry, yHi - e.ry);
+        },
+      });
+    });
+
+    const placed: Shape[] = [];
+    for (const s of shapes) {
+      let moved = false;
+      for (const p of placed) {
+        if (!bboxOverlap(s.bbox, p.bbox)) continue;
+
+        const dxRight = p.bbox.maxX + gap - s.bbox.minX;
+        let dx = dxRight;
+        let dy = 0;
+        let boxDelta = clampBoxDelta(s.bbox, dx, dy);
+
+        if (boxDelta.nx2 > xHi) {
+          const dxLeft = p.bbox.minX - gap - s.bbox.maxX;
+          dx = dxLeft;
+          boxDelta = clampBoxDelta(s.bbox, dx, 0);
+        }
+
+        if (boxDelta.nx1 < xLo || boxDelta.nx2 > xHi) {
+          const dyDown = p.bbox.maxY + gap - s.bbox.minY;
+          dy = dyDown;
+          boxDelta = clampBoxDelta(s.bbox, 0, dy);
+        }
+
+        s.move(boxDelta.dx, boxDelta.dy);
+        moveAssociated(s.bbox, boxDelta.dx, boxDelta.dy);
+        s.bbox = {
+          minX: s.bbox.minX + boxDelta.dx,
+          maxX: s.bbox.maxX + boxDelta.dx,
+          minY: s.bbox.minY + boxDelta.dy,
+          maxY: s.bbox.maxY + boxDelta.dy,
+        };
+        moved = true;
+      }
+      placed.push(s);
+      if (moved) {
+        // update placed bboxes to reflect any moves
+        placed.forEach((pp) => {
+          // keep as-is; already updated for moved shapes
+        });
+      }
+    }
+  }
+
   return diagram;
 }
 
@@ -620,7 +785,10 @@ export default async function handler(req: any, res: any) {
     }
 
     const mentionsRect = /(rectangle|square|rect|box|frame|border)/i.test(description);
-    const safeDiagram = normalizeAndClamp(diagram, { allowRects: mentionsRect });
+    const allowsTouching = /(touch|touching|overlap|overlapping|intersect|intersection|share|sharing|adjacent|tangent|inscribed|inside|nested|concentric|cross|connected|meet at|secant)/i.test(
+      description
+    );
+    const safeDiagram = normalizeAndClamp(diagram, { allowRects: mentionsRect, allowTouching: allowsTouching });
 
     // --- Coordinate mapping override (deterministic) ---
     const parsed = parsePointPairsFromText(description);
